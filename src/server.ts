@@ -42,11 +42,22 @@ const connectDB = async () => {
 connectDB();
 
 // Middleware
+const whitelist = [
+  'http://localhost:3000',
+  'https://ap-frontend-mu.vercel.app'
+];
+
 app.use(cors({
-  origin: true, // Allow all origins in development
+  origin: (origin, callback) => {
+    // allow requests with no origin (mobile apps, curl, etc.)
+    if (!origin || whitelist.includes(origin)) {
+      return callback(null, true);
+    }
+    callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'Origin', 'Cookie'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
   exposedHeaders: ['Set-Cookie'],
   maxAge: 86400 // 24 hours
 }));
