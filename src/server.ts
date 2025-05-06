@@ -43,13 +43,16 @@ connectDB();
 
 // Middleware
 app.use(cors({
-  origin: ['https://ap-frontend-mu.vercel.app', 'http://localhost:3000'],
+  origin: true, // Allow all origins in development
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'Origin', 'Cookie'],
   exposedHeaders: ['Set-Cookie'],
   maxAge: 86400 // 24 hours
 }));
+
+// Handle preflight requests
+app.options('*', cors());
 
 // Parse JSON bodies
 app.use(express.json());
