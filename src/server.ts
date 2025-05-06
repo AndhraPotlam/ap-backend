@@ -43,10 +43,12 @@ connectDB();
 
 // Middleware
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000' || 'https://ap-frontend-mu.vercel.app',
+  origin: ['https://ap-frontend-mu.vercel.app', 'http://localhost:3000'],
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS' , 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'Origin', 'Cookie'],
+  exposedHeaders: ['Set-Cookie'],
+  maxAge: 86400 // 24 hours
 }));
 
 // Parse JSON bodies
