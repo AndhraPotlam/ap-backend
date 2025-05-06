@@ -3,7 +3,7 @@
     {
       "AllowedHeaders": ["*"],
       "AllowedMethods": ["PUT", "POST", "GET", "HEAD"],
-      "AllowedOrigins": ["http://localhost:3000", "http://localhost:8000"],
+      "AllowedOrigins": ["http://localhost:3000", "http://localhost:8000","https://ap-frontend-mu.vercel.app/"],
       "ExposeHeaders": ["ETag"],
       "MaxAgeSeconds": 3000
     }
