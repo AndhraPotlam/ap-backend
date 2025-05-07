@@ -18,7 +18,7 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT || 5000;
 
-// ---------- Manual CORS Middleware (Vercel-safe) ----------
+// ---------- ✅ Manual CORS Middleware (MUST come first) ----------
 app.use((req, res, next) => {
   const origin = req.headers.origin;
 
@@ -29,6 +29,7 @@ app.use((req, res, next) => {
 
   if (origin && allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader(
       'Access-Control-Allow-Headers',
@@ -41,7 +42,7 @@ app.use((req, res, next) => {
   }
 
   if (req.method === 'OPTIONS') {
-    return res.sendStatus(204); // Preflight OK
+    return res.sendStatus(204); // Respond to preflight
   }
 
   next();
@@ -52,7 +53,7 @@ app.use(express.json());
 app.use(cookieParser(process.env.COOKIE_SECRET || 'your-cookie-secret'));
 app.use(morgan('dev'));
 
-// Optional: Log request info
+// Optional: Log requests
 app.use((req, res, next) => {
   console.log('--------------------');
   console.log('Request URL:', req.url);
@@ -90,12 +91,12 @@ app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/upload', uploadRoutes);
 
-// ---------- Health Check Route ----------
+// ---------- Health Check ----------
 app.get('/api', (req, res) => {
   res.send('Hello, welcome to Andhra Portal API!');
 });
 
-// ---------- Error Handler ----------
+// ---------- Global Error Handler ----------
 app.use(
   (
     err: any,
