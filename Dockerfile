@@ -8,10 +8,10 @@ RUN npm install
 
 COPY . .
 
-# Add this command to build TypeScript files
+# Build TypeScript files
 RUN npm run build
 
 EXPOSE 8000
 
-# Use only one CMD instruction
-CMD ["npm", "run", "dev"]
+# Use 'start' for production deployment
+CMD ["npm", "run", "start"]

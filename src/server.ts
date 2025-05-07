@@ -16,7 +16,7 @@ dotenv.config();
 
 // Initialize express app
 const app = express();
-const port = process.env.PORT || 5000;
+const port = process.env.PORT || 8000;
 
 // ---------- ✅ Manual CORS Middleware (MUST come first) ----------
 app.use((req, res, next) => {
@@ -24,7 +24,8 @@ app.use((req, res, next) => {
 
   const allowedOrigins = [
     'http://localhost:3000',
-    'https://ap-frontend-mu.vercel.app'
+    'https://ap-frontend-mu.vercel.app',
+    'https://ap-frontend-oryb.onrender.com'
   ];
 
   if (origin && allowedOrigins.includes(origin)) {
@@ -110,9 +111,9 @@ app.use(
 );
 
 // ---------- Start Server ----------
-// app.listen(port, () => {
-//   console.log(`🚀 Server running on port ${port}`);
-// });
+app.listen(port, () => {
+  console.log(`🚀 Server running on port ${port}`);
+});
 
 // Export handler for Vercel
 export default app;
