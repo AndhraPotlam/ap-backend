@@ -104,14 +104,12 @@ export const userController = {
         { expiresIn: '24h' }
       );
 
-      // Set cookie with appropriate domain
-      const isProduction = process.env.NODE_ENV === 'production';
+      // Set cookie without domain specification
       res.cookie('token', token, {
         httpOnly: true,
         secure: true,
-        sameSite: 'lax', // Changed from 'strict' to 'lax' for cross-origin requests
+        sameSite: 'lax',
         path: '/',
-        domain: isProduction ? '.vercel.app' : 'localhost', // Use appropriate domain
         maxAge: 24 * 60 * 60 * 1000 // 24 hours
       });
 
@@ -132,13 +130,11 @@ export const userController = {
 
   logout: async (req: Request, res: Response): Promise<void> => {
     try {
-      const isProduction = process.env.NODE_ENV === 'production';
       res.clearCookie('token', {
         httpOnly: true,
         secure: true,
         sameSite: 'lax',
-        path: '/',
-        domain: isProduction ? '.vercel.app' : 'localhost'
+        path: '/'
       });
       res.json({ message: 'Logout successful' });
     } catch (error: any) {
