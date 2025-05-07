@@ -1,6 +1,5 @@
 import express from 'express';
 import dotenv from 'dotenv';
-import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import mongoose from 'mongoose';
 import morgan from 'morgan';
@@ -17,68 +16,43 @@ dotenv.config();
 
 // Initialize express app
 const app = express();
-const port = process.env.PORT;
+const port = process.env.PORT || 5000;
 
-// ---------- CORS Configuration (MUST be at the top) ----------
-const whitelist = [
-  'http://localhost:3000',
-  'https://ap-frontend-mu.vercel.app'
-];
-
-const corsOptions = {
-  origin: function (
-    origin: string | undefined,
-    callback: (error: Error | null, allow?: boolean) => void
-  ) {
-    if (!origin || whitelist.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: [
-    'Content-Type',
-    'Authorization',
-    'Accept',
-    'X-Requested-With',
-    'Origin',
-    'Cookie'
-  ],
-  exposedHeaders: ['Set-Cookie'],
-  optionsSuccessStatus: 204,
-  preflightContinue: true,
-  maxAge: 86400
-};
-
-app.use(cors(corsOptions));
+// ---------- Manual CORS Middleware (Vercel-safe) ----------
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.header(
-    'Access-Control-Allow-Headers',
-    'Origin, X-Requested-With, Content-Type, Accept, Authorization'
-  );
-  res.header(
-    'Access-Control-Allow-Methods',
-    'GET, POST, PUT, DELETE, PATCH, OPTIONS'
-  );
-  res.header('Access-Control-Allow-Credentials', 'true');
-  
+  const origin = req.headers.origin;
+
+  const allowedOrigins = [
+    'http://localhost:3000',
+    'https://ap-frontend-mu.vercel.app'
+  ];
+
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      'Origin, X-Requested-With, Content-Type, Accept, Authorization'
+    );
+    res.setHeader(
+      'Access-Control-Allow-Methods',
+      'GET, POST, PUT, DELETE, OPTIONS, PATCH'
+    );
+  }
+
   if (req.method === 'OPTIONS') {
     return res.sendStatus(204); // Preflight OK
   }
 
   next();
 });
-app.options('*', cors(corsOptions)); // Handle preflight
 
-// ---------- Middleware ----------
+// ---------- Core Middleware ----------
 app.use(express.json());
 app.use(cookieParser(process.env.COOKIE_SECRET || 'your-cookie-secret'));
 app.use(morgan('dev'));
 
-// Optional: Log incoming request details
+// Optional: Log request info
 app.use((req, res, next) => {
   console.log('--------------------');
   console.log('Request URL:', req.url);
@@ -101,27 +75,27 @@ const connectDB = async () => {
       tls: true,
       tlsAllowInvalidCertificates: false
     });
-    console.log('MongoDB connected successfully');
+    console.log('✅ MongoDB connected successfully');
   } catch (error) {
-    console.error('MongoDB connection error:', error);
+    console.error('❌ MongoDB connection error:', error);
     process.exit(1);
   }
 };
 connectDB();
 
-// ---------- Routes ----------
+// ---------- API Routes ----------
 app.use('/api/users', userRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/upload', uploadRoutes);
 
-// ---------- Test route ----------
+// ---------- Health Check Route ----------
 app.get('/api', (req, res) => {
   res.send('Hello, welcome to Andhra Portal API!');
 });
 
-// ---------- Error handling middleware ----------
+// ---------- Error Handler ----------
 app.use(
   (
     err: any,
@@ -136,7 +110,7 @@ app.use(
 
 // ---------- Start Server ----------
 app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
+  console.log(`🚀 Server running on port ${port}`);
 });
 
 export default app;
