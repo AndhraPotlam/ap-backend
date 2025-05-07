@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node dist/server.js",
     "dev": "nodemon src/server.ts",
-    "build": "tsc",
+    "build": "tsc src/server.ts --outDir dist",
     "watch": "tsc -w",
     "migrate:categories": "ts-node src/scripts/migrateCategories.ts"
   },
