@@ -24,8 +24,7 @@ app.use((req, res, next) => {
 
   const allowedOrigins = [
     'http://localhost:3000',
-    'https://ap-frontend-mu.vercel.app',
-    'https://ap-frontend-oryb.onrender.com'
+    'https://ap-frontend-mu.vercel.app'
   ];
 
   if (origin && allowedOrigins.includes(origin)) {
@@ -34,7 +33,7 @@ app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader(
       'Access-Control-Allow-Headers',
-      'Origin, X-Requested-With, Content-Type, Accept, Authorization'
+      'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cookie'
     );
     res.setHeader(
       'Access-Control-Allow-Methods',
@@ -42,8 +41,10 @@ app.use((req, res, next) => {
     );
   }
 
+  // Handle preflight requests
   if (req.method === 'OPTIONS') {
-    return res.sendStatus(204); // Respond to preflight
+    res.setHeader('Access-Control-Max-Age', '86400'); // 24 hours
+    return res.status(204).end();
   }
 
   next();
@@ -60,7 +61,6 @@ app.use((req, res, next) => {
   console.log('Request URL:', req.url);
   console.log('Request Method:', req.method);
   console.log('Request Body:', req.body);
-  console.log('Request Headers:', req.headers);
   console.log('--------------------');
   next();
 });

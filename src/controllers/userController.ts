@@ -81,12 +81,14 @@ export const userController = {
 
       const user = await User.findOne({ email });
       if (!user) {
+        console.log('Invalid email or password');
         res.status(401).json({ message: 'Invalid email or password' });
         return;
       }
 
       const isMatch = await user.comparePassword(password);
       if (!isMatch) {
+        console.log('Invalid email or password');
         res.status(401).json({ message: 'Invalid email or password' });
         return;
       }
