@@ -4,10 +4,9 @@
   "description": "Andhra Potlam Backend API",
   "main": "dist/server.js",
   "scripts": {
-    "start": "node dist/server.js",
     "dev": "nodemon src/server.ts",
     "build": "rimraf dist && tsc",
-    "watch": "tsc -w",
+    "start": "node dist/server.js",
     "migrate:categories": "ts-node src/scripts/migrateCategories.ts"
   },
   "dependencies": {
