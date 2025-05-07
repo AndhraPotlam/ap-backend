@@ -19,7 +19,59 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT;
 
-// Connect to MongoDB
+// ---------- CORS Configuration (MUST be at the top) ----------
+const whitelist = [
+  'http://localhost:3000',
+  'https://ap-frontend-mu.vercel.app'
+];
+
+const corsOptions = {
+  origin: function (
+    origin: string | undefined,
+    callback: (error: Error | null, allow?: boolean) => void
+  ) {
+    if (!origin || whitelist.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'Accept',
+    'X-Requested-With',
+    'Origin',
+    'Cookie'
+  ],
+  exposedHeaders: ['Set-Cookie'],
+  optionsSuccessStatus: 204,
+  preflightContinue: false,
+  maxAge: 86400
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // Handle preflight
+
+// ---------- Middleware ----------
+app.use(express.json());
+app.use(cookieParser(process.env.COOKIE_SECRET || 'your-cookie-secret'));
+app.use(morgan('dev'));
+
+// Optional: Log incoming request details
+app.use((req, res, next) => {
+  console.log('--------------------');
+  console.log('Request URL:', req.url);
+  console.log('Request Method:', req.method);
+  console.log('Request Body:', req.body);
+  console.log('Request Headers:', req.headers);
+  console.log('--------------------');
+  next();
+});
+
+// ---------- Connect to MongoDB ----------
 const connectDB = async () => {
   try {
     const mongoUrl = process.env.MONGODB_URI;
@@ -37,76 +89,34 @@ const connectDB = async () => {
     process.exit(1);
   }
 };
-
-// Connect to database
 connectDB();
 
-// Middleware
-const whitelist = [
-  'http://localhost:3000',
-  'https://ap-frontend-mu.vercel.app'
-];
-const corsOptions = {
-  origin: function (origin: string | undefined, callback: (error: Error | null, allow?: boolean) => void) {
-    if (!origin || whitelist.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'Origin', 'Cookie'],
-  exposedHeaders: ['Set-Cookie'],
-  optionsSuccessStatus: 204,
-  preflightContinue: false,
-  maxAge: 86400
-};
-
-app.use(cors(corsOptions));
-
-// Handle preflight requests with same CORS options
-app.options('*', cors(corsOptions));
-
-// Parse JSON bodies
-app.use(express.json());
-
-// Parse cookies with secure settings
-app.use(cookieParser(process.env.COOKIE_SECRET || 'your-cookie-secret'));
-
-// Add logging middleware before routes
-app.use(morgan('dev')); // Logs HTTP requests
-
-// Add detailed request logging
-app.use((req, res, next) => {
-  console.log('--------------------');
-  console.log('Request URL:', req.url);
-  console.log('Request Method:', req.method);
-  console.log('Request Body:', req.body);
-  console.log('Request Headers:', req.headers);
-  console.log('--------------------');
-  next();
-});
-
-
-// Routes
+// ---------- Routes ----------
 app.use('/api/users', userRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/upload', uploadRoutes);
 
-// Error handling middleware
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error(err.stack);
-  res.status(500).json({ message: 'Something went wrong!' });
-});
-
+// ---------- Test route ----------
 app.get('/api', (req, res) => {
-  res.send('Hello, welcome to andhra potal api!');
+  res.send('Hello, welcome to Andhra Portal API!');
 });
 
-// Start server
+// ---------- Error handling middleware ----------
+app.use(
+  (
+    err: any,
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) => {
+    console.error(err.stack);
+    res.status(500).json({ message: 'Something went wrong!' });
+  }
+);
+
+// ---------- Start Server ----------
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
