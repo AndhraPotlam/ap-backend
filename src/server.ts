@@ -46,24 +46,27 @@ const whitelist = [
   'http://localhost:3000',
   'https://ap-frontend-mu.vercel.app'
 ];
-
-app.use(cors({
-  origin: (origin, callback) => {
-    // allow requests with no origin (mobile apps, curl, etc.)
+const corsOptions = {
+  origin: function (origin: string | undefined, callback: (error: Error | null, allow?: boolean) => void) {
     if (!origin || whitelist.includes(origin)) {
-      return callback(null, true);
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
     }
-    callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept',"Access-Control-Allow-Origin"],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'Origin', 'Cookie'],
   exposedHeaders: ['Set-Cookie'],
-  maxAge: 86400 // 24 hours
-}));
+  optionsSuccessStatus: 204,
+  preflightContinue: false,
+  maxAge: 86400
+};
 
-// Handle preflight requests
-app.options('*', cors());
+app.use(cors(corsOptions));
+
+// Handle preflight requests with same CORS options
+app.options('*', cors(corsOptions));
 
 // Parse JSON bodies
 app.use(express.json());
