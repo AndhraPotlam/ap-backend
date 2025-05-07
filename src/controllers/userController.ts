@@ -104,12 +104,14 @@ export const userController = {
         { expiresIn: '24h' }
       );
 
+      // Set cookie with appropriate domain
+      const isProduction = process.env.NODE_ENV === 'production';
       res.cookie('token', token, {
         httpOnly: true,
         secure: true,
-        sameSite: 'strict',
+        sameSite: 'lax', // Changed from 'strict' to 'lax' for cross-origin requests
         path: '/',
-        domain: 'localhost',
+        domain: isProduction ? '.vercel.app' : 'localhost', // Use appropriate domain
         maxAge: 24 * 60 * 60 * 1000 // 24 hours
       });
 
@@ -130,12 +132,13 @@ export const userController = {
 
   logout: async (req: Request, res: Response): Promise<void> => {
     try {
+      const isProduction = process.env.NODE_ENV === 'production';
       res.clearCookie('token', {
         httpOnly: true,
         secure: true,
-        sameSite: 'strict',
+        sameSite: 'lax',
         path: '/',
-        domain: 'localhost'
+        domain: isProduction ? '.vercel.app' : 'localhost'
       });
       res.json({ message: 'Logout successful' });
     } catch (error: any) {
@@ -145,8 +148,10 @@ export const userController = {
 
   getMe: async (req: Request, res: Response): Promise<void> => {
     try {
+      console.log(req.user);
       const user = await User.findById(req.user?.userId).select('firstName lastName email role');
       if (!user) {
+        console.log('User not found');
         res.status(404).json({ message: 'User not found' });
         return;
       }
