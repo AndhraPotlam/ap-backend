@@ -48,7 +48,7 @@ const corsOptions = {
   ],
   exposedHeaders: ['Set-Cookie'],
   optionsSuccessStatus: 204,
-  preflightContinue: false,
+  preflightContinue: true,
   maxAge: 86400
 };
 
