@@ -104,11 +104,11 @@ export const userController = {
         { expiresIn: '24h' }
       );
 
-      // Set cookie without domain specification
+      // Set cookie with cross-origin settings
       res.cookie('token', token, {
         httpOnly: true,
         secure: true,
-        sameSite: 'lax',
+        sameSite: 'none',
         path: '/',
         maxAge: 24 * 60 * 60 * 1000 // 24 hours
       });
@@ -133,7 +133,7 @@ export const userController = {
       res.clearCookie('token', {
         httpOnly: true,
         secure: true,
-        sameSite: 'lax',
+        sameSite: 'none',
         path: '/'
       });
       res.json({ message: 'Logout successful' });
