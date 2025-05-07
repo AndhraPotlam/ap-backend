@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node dist/server.js",
     "dev": "nodemon src/server.ts",
-    "build": "tsc src/server.ts --outDir dist",
+    "build": "rimraf dist && tsc",
     "watch": "tsc -w",
     "migrate:categories": "ts-node src/scripts/migrateCategories.ts"
   },
@@ -36,6 +36,7 @@
     "@types/morgan": "^1.9.9",
     "@types/node": "^20.10.4",
     "nodemon": "^3.0.2",
+    "rimraf": "^6.0.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3"
   }
