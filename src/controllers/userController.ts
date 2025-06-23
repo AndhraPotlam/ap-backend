@@ -5,7 +5,7 @@ import jwt from 'jsonwebtoken';
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
 export const userController = {
-  register: async (req: Request, res: Response): Promise<void> => {
+  register: async (req: Request, res: Response): Promise<any> => {
     try {
       const { email, phoneNumber, password } = req.body;
       console.log(email, phoneNumber, password)
@@ -70,7 +70,7 @@ export const userController = {
     }
   },
 
-  login: async (req: Request, res: Response): Promise<void> => {
+  login: async (req: Request, res: Response): Promise<any> => {
     try {
       const { email, password } = req.body;
 
@@ -128,7 +128,7 @@ export const userController = {
     }
   },
 
-  logout: async (req: Request, res: Response): Promise<void> => {
+  logout: async (req: Request, res: Response): Promise<any> => {
     try {
       res.clearCookie('token', {
         httpOnly: true,
@@ -142,14 +142,15 @@ export const userController = {
     }
   },
 
-  getMe: async (req: Request, res: Response): Promise<void> => {
+  getMe: async (req: Request, res: Response): Promise<any> => {
     try {
-      console.log(req.user);
-      const user = await User.findById(req.user?.userId).select('firstName lastName email role');
+      if (!req.user) {
+        // Not authenticated
+        return res.status(401).json({ message: 'Not authenticated' });
+      }
+      const user = await User.findById(req.user.userId).select('firstName lastName email role');
       if (!user) {
-        console.log('User not found');
-        res.status(404).json({ message: 'User not found' });
-        return;
+        return res.status(404).json({ message: 'User not found' });
       }
       res.json(user);
     } catch (error: any) {
@@ -157,7 +158,7 @@ export const userController = {
     }
   },
 
-  updateUser: async (req: Request, res: Response): Promise<void> => {
+  updateUser: async (req: Request, res: Response): Promise<any> => {
     try {
       const { email, ...updateData } = req.body;
 
