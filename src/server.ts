@@ -24,6 +24,7 @@ app.use((req, res, next) => {
 
   const allowedOrigins = [
     'http://localhost:3000',
+    'http://localhost:8080',
     'https://ap-frontend-mu.vercel.app'
   ];
 
