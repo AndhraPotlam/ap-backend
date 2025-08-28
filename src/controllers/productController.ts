@@ -103,12 +103,36 @@ export const productController = {
       // Generate presigned URLs for each product's image
       const productsWithPresignedUrls = await Promise.all(
         products.map(async (product) => {
-          const fileName = product.imageUrl.split('/').pop();
-          const presignedUrl = await s3Service.getReadPresignedUrl(fileName!);
-          return {
-            ...product.toObject(),
-            imageUrl: presignedUrl
-          };
+          try {
+            // Check if S3 is configured
+            if (!s3Service.isConfigured()) {
+              console.warn('S3 not configured, using direct URLs');
+              const fileName = product.imageUrl.split('/').pop();
+              const directUrl = s3Service.getImageUrl(fileName!);
+              return {
+                ...product.toObject(),
+                imageUrl: directUrl,
+                imageUrlWarning: 'S3 not configured - using direct URLs'
+              };
+            }
+
+            const fileName = product.imageUrl.split('/').pop();
+            const presignedUrl = await s3Service.getReadPresignedUrl(fileName!);
+            return {
+              ...product.toObject(),
+              imageUrl: presignedUrl
+            };
+          } catch (s3Error) {
+            console.warn('S3 presigned URL generation failed for product:', product._id, s3Error);
+            // Fallback to direct S3 URL
+            const fileName = product.imageUrl.split('/').pop();
+            const directUrl = s3Service.getImageUrl(fileName!);
+            return {
+              ...product.toObject(),
+              imageUrl: directUrl,
+              imageUrlWarning: 'Using direct URL due to S3 configuration issue'
+            };
+          }
         })
       );
 
@@ -177,11 +201,29 @@ export const productController = {
 
       // Generate presigned URL for the product's image
       const fileName = product.imageUrl.split('/').pop();
-      const presignedUrl = await s3Service.getReadPresignedUrl(fileName!);
+      let imageUrl;
+      let imageUrlWarning;
+      
+      try {
+        // Check if S3 is configured
+        if (!s3Service.isConfigured()) {
+          console.warn('S3 not configured, using direct URL');
+          imageUrl = s3Service.getImageUrl(fileName!);
+          imageUrlWarning = 'S3 not configured - using direct URL';
+        } else {
+          imageUrl = await s3Service.getReadPresignedUrl(fileName!);
+        }
+      } catch (s3Error) {
+        console.warn('S3 presigned URL generation failed for product:', product._id, s3Error);
+        // Fallback to direct S3 URL
+        imageUrl = s3Service.getImageUrl(fileName!);
+        imageUrlWarning = 'Using direct URL due to S3 configuration issue';
+      }
       
       res.json({
         ...product.toObject(),
-        imageUrl: presignedUrl
+        imageUrl: imageUrl,
+        ...(imageUrlWarning && { imageUrlWarning })
       });
     } catch (error: any) {
       console.error('Error fetching product:', error);
@@ -271,6 +313,28 @@ export const productController = {
     } catch (error: any) {
       console.error('Error deleting product:', error);
       res.status(500).json({ message: 'Error deleting product', error: error.message });
+    }
+  },
+
+  // Diagnostic endpoint for AWS credentials
+  checkS3Status: async (req: Request, res: Response): Promise<void> => {
+    try {
+      const s3Status = {
+        isConfigured: s3Service.isConfigured(),
+        hasAccessKey: !!process.env.AWS_ACCESS_KEY_ID,
+        hasSecretKey: !!process.env.AWS_SECRET_ACCESS_KEY,
+        hasRegion: !!process.env.AWS_REGION,
+        hasBucket: !!process.env.AWS_BUCKET_NAME,
+        region: process.env.AWS_REGION,
+        bucket: process.env.AWS_BUCKET_NAME,
+        accessKeyPrefix: process.env.AWS_ACCESS_KEY_ID ? 
+          process.env.AWS_ACCESS_KEY_ID.substring(0, 4) + '...' : 'Not set'
+      };
+      
+      res.json(s3Status);
+    } catch (error: any) {
+      console.error('Error checking S3 status:', error);
+      res.status(500).json({ message: 'Error checking S3 status', error: error.message });
     }
   }
 };

@@ -14,6 +14,12 @@ import orderRoutes from './routes/orderRoutes';
 // Load environment variables
 dotenv.config();
 
+// Temporary debug - check if .env is loaded
+console.log('🔍 Server startup - Checking .env loading...');
+console.log('🔍 Current working directory:', process.cwd());
+console.log('🔍 AWS vars found:', Object.keys(process.env).filter(key => key.startsWith('AWS_')));
+console.log('🔍 MONGODB_URI:', process.env.MONGODB_URI ? 'Set' : 'Not set');
+
 // Initialize express app
 const app = express();
 const port = process.env.PORT || 8000;

@@ -144,6 +144,7 @@ export const userController = {
 
   getMe: async (req: Request, res: Response): Promise<any> => {
     try {
+      console.log(req.user)
       if (!req.user) {
         // Not authenticated
         return res.status(401).json({ message: 'Not authenticated' });

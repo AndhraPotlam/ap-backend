@@ -9,6 +9,9 @@ router.get('/', productController.getAllProducts);
 router.get('/category/:category', productController.getProductsByCategory);
 router.get('/:id', productController.getProduct);
 
+// Diagnostic route for S3 status
+router.get('/s3/status', productController.checkS3Status);
+
 // Protected routes
 router.post('/', authMiddleware, productController.createProduct);
 router.put('/:id', authMiddleware, productController.updateProduct);
