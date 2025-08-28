@@ -24,17 +24,44 @@ console.log('🔍 MONGODB_URI:', process.env.MONGODB_URI ? 'Set' : 'Not set');
 const app = express();
 const port = process.env.PORT || 8000;
 
-// ---------- ✅ Manual CORS Middleware (MUST come first) ----------
+// ---------- ✅ Universal CORS Middleware for Vercel (MUST come first) ----------
 app.use((req, res, next) => {
   const origin = req.headers.origin;
 
+  // Universal allowed origins for Vercel deployments
   const allowedOrigins = [
+    // Local development
     'http://localhost:3000',
     'http://localhost:8080',
-    'https://ap-frontend-mu.vercel.app'
+    'http://127.0.0.1:3000',
+    
+    // Vercel frontend domains (wildcard for all Vercel deployments)
+    /^https:\/\/.*\.vercel\.app$/,
+    /^https:\/\/.*\.vercel\.app\/.*$/,
+    
+    // Specific domains (if you want to be more restrictive)
+    'https://ap-frontend-mu.vercel.app',
+    'https://ap-frontend-git-main-andhra-potlams-projects.vercel.app',
+    'https://andhra-potlam.vercel.app',
+    
+    // Netlify domains (if you use Netlify)
+    /^https:\/\/.*\.netlify\.app$/,
+    
+    // Custom domains (add your custom domain here)
+    // 'https://yourdomain.com'
   ];
 
-  if (origin && allowedOrigins.includes(origin)) {
+  // Check if origin is allowed
+  const isAllowed = allowedOrigins.some(allowedOrigin => {
+    if (typeof allowedOrigin === 'string') {
+      return origin === allowedOrigin;
+    } else if (allowedOrigin instanceof RegExp) {
+      return allowedOrigin.test(origin || '');
+    }
+    return false;
+  });
+
+  if (origin && isAllowed) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Credentials', 'true');
