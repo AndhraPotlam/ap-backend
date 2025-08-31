@@ -14,12 +14,6 @@ import orderRoutes from './routes/orderRoutes';
 // Load environment variables
 dotenv.config();
 
-// Temporary debug - check if .env is loaded
-console.log('🔍 Server startup - Checking .env loading...');
-console.log('🔍 Current working directory:', process.cwd());
-console.log('🔍 AWS vars found:', Object.keys(process.env).filter(key => key.startsWith('AWS_')));
-console.log('🔍 MONGODB_URI:', process.env.MONGODB_URI ? 'Set' : 'Not set');
-
 // Initialize express app
 const app = express();
 const port = process.env.PORT || 8000;
@@ -129,26 +123,6 @@ app.use('/api/upload', uploadRoutes);
 // ---------- Health Check ----------
 app.get('/api', (req, res) => {
   res.send('Hello, welcome to Andhra Portal API!');
-});
-
-// ---------- Debug Environment Variables ----------
-app.get('/api/debug/env', (req, res) => {
-  const envVars = {
-    hasMongoDB: !!process.env.MONGODB_URI,
-    hasJWTSecret: !!process.env.JWT_SECRET,
-    hasCookieSecret: !!process.env.COOKIE_SECRET,
-    hasAWS: {
-      accessKey: !!process.env.AWS_ACCESS_KEY_ID,
-      secretKey: !!process.env.AWS_SECRET_ACCESS_KEY,
-      region: !!process.env.AWS_REGION,
-      bucket: !!process.env.AWS_BUCKET_NAME,
-      sessionToken: !!process.env.AWS_SESSION_TOKEN
-    },
-    nodeEnv: process.env.NODE_ENV,
-    vercelEnv: process.env.VERCEL_ENV
-  };
-  
-  res.json(envVars);
 });
 
 // ---------- Global Error Handler ----------
