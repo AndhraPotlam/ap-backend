@@ -131,6 +131,26 @@ app.get('/api', (req, res) => {
   res.send('Hello, welcome to Andhra Portal API!');
 });
 
+// ---------- Debug Environment Variables ----------
+app.get('/api/debug/env', (req, res) => {
+  const envVars = {
+    hasMongoDB: !!process.env.MONGODB_URI,
+    hasJWTSecret: !!process.env.JWT_SECRET,
+    hasCookieSecret: !!process.env.COOKIE_SECRET,
+    hasAWS: {
+      accessKey: !!process.env.AWS_ACCESS_KEY_ID,
+      secretKey: !!process.env.AWS_SECRET_ACCESS_KEY,
+      region: !!process.env.AWS_REGION,
+      bucket: !!process.env.AWS_BUCKET_NAME,
+      sessionToken: !!process.env.AWS_SESSION_TOKEN
+    },
+    nodeEnv: process.env.NODE_ENV,
+    vercelEnv: process.env.VERCEL_ENV
+  };
+  
+  res.json(envVars);
+});
+
 // ---------- Global Error Handler ----------
 app.use(
   (
