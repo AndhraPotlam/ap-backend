@@ -99,7 +99,7 @@ export const userController = {
       }
 
       const token = jwt.sign(
-        { userId: user._id },
+        { userId: user._id, role: user.role },
         JWT_SECRET,
         { expiresIn: '24h' }
       );
@@ -120,7 +120,8 @@ export const userController = {
           firstName: user.firstName,
           lastName: user.lastName,
           email: user.email,
-          phoneNumber: user.phoneNumber
+          phoneNumber: user.phoneNumber,
+          role: user.role
         }
       });
     } catch (error: any) {

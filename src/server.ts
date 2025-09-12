@@ -10,6 +10,10 @@ import productRoutes from './routes/productRoutes';
 import categoryRoutes from './routes/categoryRoutes';
 import uploadRoutes from './routes/uploadRoutes';
 import orderRoutes from './routes/orderRoutes';
+import settingsRoutes from './routes/settingsRoutes';
+import couponRoutes from './routes/couponRoutes';
+import discountRoutes from './routes/discountRoutes';
+import cartRoutes from './routes/cartRoutes';
 
 // Load environment variables
 dotenv.config();
@@ -119,6 +123,10 @@ app.use('/api/categories', categoryRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/settings', settingsRoutes);
+app.use('/api/coupons', couponRoutes);
+app.use('/api/discounts', discountRoutes);
+app.use('/api/cart', cartRoutes);
 
 // ---------- Health Check ----------
 app.get('/api', (req, res) => {
