@@ -12,5 +12,6 @@ router.put('/:id', authMiddleware, userController.updateUser);
 
 // Protected routes
 router.get('/me', authMiddleware, userController.getMe);
+router.get('/', authMiddleware, userController.listUsers);
 
 export default router;

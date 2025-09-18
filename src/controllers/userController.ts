@@ -160,6 +160,19 @@ export const userController = {
     }
   },
 
+  listUsers: async (req: Request, res: Response): Promise<any> => {
+    try {
+      if (!req.user || req.user.role !== 'admin') {
+        res.status(403).json({ message: 'Forbidden' });
+        return;
+      }
+      const users = await User.find({}, 'firstName lastName email role').sort({ firstName: 1, lastName: 1 });
+      res.json({ users });
+    } catch (error: any) {
+      res.status(500).json({ message: 'Failed to list users', error: error.message });
+    }
+  },
+
   updateUser: async (req: Request, res: Response): Promise<any> => {
     try {
       const { email, ...updateData } = req.body;
