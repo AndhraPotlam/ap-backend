@@ -14,6 +14,10 @@ import settingsRoutes from './routes/settingsRoutes';
 import couponRoutes from './routes/couponRoutes';
 import discountRoutes from './routes/discountRoutes';
 import cartRoutes from './routes/cartRoutes';
+import taskRoutes from './routes/taskRoutes';
+import taskTemplateRoutes from './routes/taskTemplateRoutes';
+import cronRoutes from './routes/cronRoutes';
+import { taskScheduler } from './services/taskScheduler';
 
 // Load environment variables
 dotenv.config();
@@ -127,6 +131,9 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/coupons', couponRoutes);
 app.use('/api/discounts', discountRoutes);
 app.use('/api/cart', cartRoutes);
+app.use('/api/tasks', taskRoutes);
+app.use('/api/task-templates', taskTemplateRoutes);
+app.use('/api/cron', cronRoutes);
 
 // ---------- Health Check ----------
 app.get('/api', (req, res) => {
@@ -149,6 +156,10 @@ app.use(
 // ---------- Start Server ----------
 app.listen(port, () => {
   console.log(`🚀 Server running on port ${port}`);
+  
+  // Start task scheduler
+  taskScheduler.start();
+  console.log('📅 Task scheduler started');
 });
 
 // Export handler for Vercel

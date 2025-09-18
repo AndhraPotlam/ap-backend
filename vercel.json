@@ -9,16 +9,21 @@
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "src/server.ts",
-      "headers": {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "Origin, X-Requested-With, Content-Type, Accept, Authorization, Cookie",
-        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
-        "Access-Control-Allow-Credentials": "true"
-      }
+      "dest": "src/server.ts"
     }
   ],
-  "env": {
-    "NODE_ENV": "production"
-  }
+  "crons": [
+    {
+      "path": "/api/cron/generate-daily-tasks",
+      "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/generate-weekly-tasks", 
+      "schedule": "0 0 * * 0"
+    },
+    {
+      "path": "/api/cron/generate-monthly-tasks",
+      "schedule": "0 0 1 * *"
+    }
+  ]
 }
