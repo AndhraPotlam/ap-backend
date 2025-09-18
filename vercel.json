@@ -16,14 +16,6 @@
     {
       "path": "/api/cron/generate-daily-tasks",
       "schedule": "0 0 * * *"
-    },
-    {
-      "path": "/api/cron/generate-weekly-tasks", 
-      "schedule": "0 0 * * 0"
-    },
-    {
-      "path": "/api/cron/generate-monthly-tasks",
-      "schedule": "0 0 1 * *"
     }
   ]
 }
