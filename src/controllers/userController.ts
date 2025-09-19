@@ -104,13 +104,15 @@ export const userController = {
         { expiresIn: '24h' }
       );
 
-      // Set cookie with cross-origin settings
+      // Set cookie with Safari-compatible settings
+      const isProduction = process.env.NODE_ENV === 'production';
       res.cookie('token', token, {
         httpOnly: true,
-        secure: true,
-        sameSite: 'none',
+        secure: isProduction, // Only require HTTPS in production
+        sameSite: isProduction ? 'none' : 'lax', // Use 'lax' for localhost, 'none' for production
         path: '/',
-        maxAge: 24 * 60 * 60 * 1000 // 24 hours
+        maxAge: 24 * 60 * 60 * 1000, // 24 hours
+        domain: isProduction ? undefined : 'localhost' // Explicit domain for localhost
       });
 
       res.json({
@@ -131,11 +133,14 @@ export const userController = {
 
   logout: async (req: Request, res: Response): Promise<any> => {
     try {
+      // Clear cookie with Safari-compatible settings
+      const isProduction = process.env.NODE_ENV === 'production';
       res.clearCookie('token', {
         httpOnly: true,
-        secure: true,
-        sameSite: 'none',
-        path: '/'
+        secure: isProduction, // Only require HTTPS in production
+        sameSite: isProduction ? 'none' : 'lax', // Use 'lax' for localhost, 'none' for production
+        path: '/',
+        domain: isProduction ? undefined : 'localhost' // Explicit domain for localhost
       });
       res.json({ message: 'Logout successful' });
     } catch (error: any) {
