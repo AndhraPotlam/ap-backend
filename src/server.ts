@@ -18,6 +18,7 @@ import taskRoutes from './routes/taskRoutes';
 import taskTemplateRoutes from './routes/taskTemplateRoutes';
 import expenseRoutes from './routes/expenseRoutes';
 import expenseCategoryRoutes from './routes/expenseCategoryRoutes';
+import cashBoxRoutes from './routes/cashBoxRoutes';
 import cronRoutes from './routes/cronRoutes';
 import { taskScheduler } from './services/taskScheduler';
 
@@ -137,6 +138,7 @@ app.use('/api/tasks', taskRoutes);
 app.use('/api/task-templates', taskTemplateRoutes);
 app.use('/api/expenses', expenseRoutes);
 app.use('/api/expense-categories', expenseCategoryRoutes);
+app.use('/api/cashbox', cashBoxRoutes);
 app.use('/api/cron', cronRoutes);
 
 // ---------- Health Check ----------
