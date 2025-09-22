@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { startOfDay, endOfDay } from 'date-fns';
 import { Expense, IExpense } from '../models/Expense';
 
 export const expenseController = {
@@ -151,6 +152,74 @@ export const expenseController = {
     } catch (error: any) {
       console.error('Error deleting expense:', error);
       res.status(500).json({ message: 'Error deleting expense', error: error.message });
+    }
+  },
+
+  // Summary for date range: totals and breakdowns
+  summary: async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { startDate, endDate } = req.query as { startDate?: string; endDate?: string };
+      const start = startDate ? startOfDay(new Date(startDate)) : startOfDay(new Date());
+      const end = endDate ? endOfDay(new Date(endDate)) : endOfDay(new Date());
+
+      const expenses = await Expense.find({
+        date: { $gte: start, $lte: end }
+      }).populate('paidBy', 'firstName lastName').populate('category', 'name');
+
+      // Calculate total amount
+      const totalAmount = expenses.reduce((sum, expense) => sum + (expense.amount || 0), 0);
+
+      // Group by payment type
+      const paymentTypeBreakdown = expenses.reduce((acc, expense) => {
+        const type = expense.paymentType || 'unknown';
+        acc[type] = (acc[type] || 0) + (expense.amount || 0);
+        return acc;
+      }, {} as Record<string, number>);
+
+      // Group by category
+      const categoryBreakdown = expenses.reduce((acc, expense) => {
+        const categoryName = typeof expense.category === 'string' 
+          ? 'Unknown' 
+          : (expense.category as any)?.name || 'Unknown';
+        acc[categoryName] = (acc[categoryName] || 0) + (expense.amount || 0);
+        return acc;
+      }, {} as Record<string, number>);
+
+      // Group by user
+      const userBreakdown = expenses.reduce((acc, expense) => {
+        const userName = typeof expense.paidBy === 'string' 
+          ? 'Unknown' 
+          : `${(expense.paidBy as any)?.firstName || ''} ${(expense.paidBy as any)?.lastName || ''}`.trim() || 'Unknown';
+        acc[userName] = (acc[userName] || 0) + (expense.amount || 0);
+        return acc;
+      }, {} as Record<string, number>);
+
+      const response = {
+        summary: {
+          totalAmount,
+          expenseCount: expenses.length,
+          paymentTypeBreakdown: Object.entries(paymentTypeBreakdown).map(([type, amount]) => ({
+            type,
+            amount,
+            percentage: totalAmount > 0 ? (amount / totalAmount * 100).toFixed(1) : '0'
+          })),
+          categoryBreakdown: Object.entries(categoryBreakdown).map(([category, amount]) => ({
+            category,
+            amount,
+            percentage: totalAmount > 0 ? (amount / totalAmount * 100).toFixed(1) : '0'
+          })),
+          userBreakdown: Object.entries(userBreakdown).map(([user, amount]) => ({
+            user,
+            amount,
+            percentage: totalAmount > 0 ? (amount / totalAmount * 100).toFixed(1) : '0'
+          }))
+        }
+      };
+
+      res.json(response);
+    } catch (error: any) {
+      console.error('Error getting expense summary:', error);
+      res.status(500).json({ message: 'Error getting expense summary', error: error.message });
     }
   },
 };

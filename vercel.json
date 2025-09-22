@@ -11,11 +11,7 @@
       "src": "/(.*)",
       "dest": "src/server.ts"
     }
-  ],
-  "crons": [
-    {
-      "path": "/api/cron/generate-daily-tasks",
-      "schedule": "0 0 * * *"
-    }
   ]
 }
+
+

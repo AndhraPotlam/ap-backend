@@ -87,15 +87,60 @@ export const cashBoxController = {
   // List sessions by date range with aggregates
   listSessions: async (req: Request, res: Response) => {
     try {
-      const { startDate, endDate } = req.query as { startDate?: string; endDate?: string };
+      const { 
+        startDate, 
+        endDate, 
+        sessionType, 
+        status,
+        page = '1', 
+        limit = '10' 
+      } = req.query as { 
+        startDate?: string; 
+        endDate?: string; 
+        sessionType?: string;
+        status?: string;
+        page?: string;
+        limit?: string;
+      };
+
       const start = startDate ? startOfDay(new Date(startDate)) : startOfDay(new Date());
       const end = endDate ? endOfDay(new Date(endDate)) : endOfDay(new Date());
+      const pageNum = parseInt(page);
+      const limitNum = parseInt(limit);
+      const skip = (pageNum - 1) * limitNum;
 
-      const sessions = await CashSession.find({
-        date: { $gte: start, $lte: end },
-      }).populate('openedBy closedBy', 'firstName lastName');
+      // Build filter object
+      const filter: any = {
+        date: { $gte: start, $lte: end }
+      };
 
-      res.json({ sessions });
+      // Add session type filter if provided
+      if (sessionType) {
+        filter.sessionName = sessionType;
+      }
+
+      // Add status filter if provided
+      if (status) {
+        filter.status = status;
+      }
+
+      // Get total count for pagination
+      const total = await CashSession.countDocuments(filter);
+
+      // Get paginated sessions
+      const sessions = await CashSession.find(filter)
+        .populate('openedBy closedBy', 'firstName lastName')
+        .sort({ date: -1, createdAt: -1 }) // Sort by date descending, then by creation time
+        .skip(skip)
+        .limit(limitNum);
+
+      res.json({ 
+        sessions, 
+        total, 
+        page: pageNum, 
+        limit: limitNum, 
+        totalPages: Math.ceil(total / limitNum) 
+      });
     } catch (error: any) {
       res.status(500).json({ message: 'Failed to list sessions', error: error.message });
     }
@@ -169,13 +214,15 @@ export const cashBoxController = {
         sessionGroups[session.sessionName].sessions.push(session);
       });
 
-      // Convert to array format for response
-      const sessionBreakdown = Object.entries(sessionGroups).map(([sessionName, data]) => ({
-        sessionName,
-        totalNet: data.totalNet,
-        sessionCount: data.sessionCount,
-        sessions: data.sessions
-      }));
+      // Convert to array format for response, sorted by session name
+      const sessionBreakdown = Object.entries(sessionGroups)
+        .map(([sessionName, data]) => ({
+          sessionName,
+          totalNet: data.totalNet,
+          sessionCount: data.sessionCount,
+          sessions: data.sessions
+        }))
+        .sort((a, b) => a.sessionName.localeCompare(b.sessionName)); // Sort alphabetically
 
       // Calculate total net across all sessions
       const totalNet = sessionSummaries.reduce((sum, session) => sum + session.net, 0);

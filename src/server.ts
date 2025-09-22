@@ -19,8 +19,8 @@ import taskTemplateRoutes from './routes/taskTemplateRoutes';
 import expenseRoutes from './routes/expenseRoutes';
 import expenseCategoryRoutes from './routes/expenseCategoryRoutes';
 import cashBoxRoutes from './routes/cashBoxRoutes';
-import cronRoutes from './routes/cronRoutes';
-import { taskScheduler } from './services/taskScheduler';
+import recipeRoutes from './routes/recipeRoutes';
+import dayPlanRoutes from './routes/dayPlanRoutes';
 
 // Load environment variables
 dotenv.config();
@@ -139,7 +139,8 @@ app.use('/api/task-templates', taskTemplateRoutes);
 app.use('/api/expenses', expenseRoutes);
 app.use('/api/expense-categories', expenseCategoryRoutes);
 app.use('/api/cashbox', cashBoxRoutes);
-app.use('/api/cron', cronRoutes);
+app.use('/api/recipes', recipeRoutes);
+app.use('/api/day-plans', dayPlanRoutes);
 
 // ---------- Health Check ----------
 app.get('/api', (req, res) => {
@@ -163,9 +164,8 @@ app.use(
 app.listen(port, () => {
   console.log(`🚀 Server running on port ${port}`);
   
-  // Start task scheduler
-  taskScheduler.start();
-  console.log('📅 Task scheduler started');
+  // Task management is now manual - no automatic scheduler
+  console.log('📅 Task management ready (manual generation)');
 });
 
 // Export handler for Vercel
