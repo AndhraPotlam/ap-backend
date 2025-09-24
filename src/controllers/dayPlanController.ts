@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { DayPlan } from '../models/DayPlan';
-import { Recipe } from '../models/Recipe';
+import { RecipeProcess } from '../models/RecipeProcess';
 import { Task } from '../models/Task';
 
 function parseTimeToMinutes(time?: string): number {
@@ -15,6 +15,7 @@ export const dayPlanController = {
       const plan = await DayPlan.create({ ...req.body, generatedBy: req.user?.userId });
       res.status(201).json({ plan });
     } catch (error: any) {
+      console.error('Error creating day plan:', error);
       res.status(500).json({ message: 'Failed to create day plan', error: error.message });
     }
   },
@@ -43,7 +44,10 @@ export const dayPlanController = {
 
       for (const sel of plan.selectedRecipes) {
         const recipeDoc: any = sel.recipe;
-        if (!recipeDoc?.steps) continue;
+        if (!recipeDoc?.steps) {
+          console.warn(`Recipe Process with ID ${sel.recipe} not found or has no steps.`);
+          continue;
+        }
         const baseMinutes = parseTimeToMinutes(sel.plannedStart);
 
         for (const step of recipeDoc.steps.sort((a: any, b: any) => (a.order||0)-(b.order||0))) {
@@ -67,23 +71,37 @@ export const dayPlanController = {
               continue;
             }
 
-            const task = await Task.create({
-              title: tmpl.name,
-              description: tmpl.description,
-              taskFor: tmpl.taskFor && tmpl.taskFor.length ? tmpl.taskFor[0] : 'hotel',
-              taskOwner: (tmpl.defaultAssignees && tmpl.defaultAssignees[0]) || req.user?.userId,
-              assignedBy: req.user?.userId,
-              priority: tmpl.priority || 'medium',
-              procedure: tmpl.procedure,
-              checklistType: 'custom',
-              dueDate: plannedStart,
-              notes: `${recipeDoc.name} • ${step.name}`,
-              location: tmpl.location,
-              estimatedDuration: tmpl.timeWindow?.durationMin,
-              tags: [`recipe:${recipeDoc._id}`, `step:${step._id}`, ...(tmpl.tags || [])]
-            });
-
-            generated.push(task);
+            try {
+              const taskData = {
+                title: tmpl.name || 'Unnamed Task',
+                description: tmpl.description || tmpl.name || 'Task from recipe',
+                taskFor: Array.isArray(tmpl.taskFor) && tmpl.taskFor.length ? tmpl.taskFor[0] : 'hotel',
+                taskOwner: (Array.isArray(tmpl.defaultAssignees) && tmpl.defaultAssignees[0]) || req.user?.userId,
+                assignedBy: req.user?.userId,
+                priority: tmpl.priority || 'medium',
+                procedure: tmpl.procedure || '',
+                checklistType: 'custom',
+                dueDate: plannedStart,
+                plannedStart,
+                plannedEnd,
+                notes: `${recipeDoc.name} Recipe Process • ${step.name}`,
+                location: tmpl.location || step.location || '',
+                estimatedDuration: tmpl.timeWindow?.durationMin || (endMin - startMin) || 15,
+                tags: [`recipe:${recipeDoc._id}`, `step:${step._id}`, ...(tmpl.tags || [])]
+              };
+              console.log('Creating task:', taskData.title, 'for date:', plannedStart.toISOString());
+              const task = await Task.create(taskData);
+              generated.push(task);
+              console.log('Task created successfully:', task._id);
+            } catch (createErr: any) {
+              console.error('Error creating task from day plan:', {
+                error: createErr?.message,
+                recipe: recipeDoc?.name,
+                step: step?.name,
+                template: tmpl?.name
+              });
+              skipped.push({ recipe: recipeDoc.name, step: step.name, template: tmpl.name, reason: createErr?.message || 'create_failed' });
+            }
           }
         }
       }
@@ -93,6 +111,7 @@ export const dayPlanController = {
 
       res.json({ message: 'Tasks generated', totalGenerated: generated.length, totalSkipped: skipped.length, generated, skipped });
     } catch (error: any) {
+      console.error('Error in generateTasks:', error);
       res.status(500).json({ message: 'Failed to generate tasks', error: error.message });
     }
   }

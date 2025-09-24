@@ -19,7 +19,7 @@ import taskTemplateRoutes from './routes/taskTemplateRoutes';
 import expenseRoutes from './routes/expenseRoutes';
 import expenseCategoryRoutes from './routes/expenseCategoryRoutes';
 import cashBoxRoutes from './routes/cashBoxRoutes';
-import recipeRoutes from './routes/recipeRoutes';
+import recipeProcessRoutes from './routes/recipeProcessRoutes';
 import dayPlanRoutes from './routes/dayPlanRoutes';
 
 // Load environment variables
@@ -139,7 +139,7 @@ app.use('/api/task-templates', taskTemplateRoutes);
 app.use('/api/expenses', expenseRoutes);
 app.use('/api/expense-categories', expenseCategoryRoutes);
 app.use('/api/cashbox', cashBoxRoutes);
-app.use('/api/recipes', recipeRoutes);
+app.use('/api/recipe-processes', recipeProcessRoutes);
 app.use('/api/day-plans', dayPlanRoutes);
 
 // ---------- Health Check ----------

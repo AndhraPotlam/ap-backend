@@ -133,6 +133,7 @@ export const taskController = {
         if (endDate) {
           filter.dueDate.$lte = new Date(endDate as string);
         }
+        console.log('Task filter with date range:', filter);
       }
 
       if (search) {

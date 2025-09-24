@@ -25,11 +25,10 @@ export interface IRecipeStep {
   tasks: IStepTaskTemplate[];
 }
 
-export interface IRecipe extends Document {
+export interface IRecipeProcess extends Document {
   name: string;
   description?: string;
   category?: string;
-  serves?: number;
   isActive: boolean;
   steps: IRecipeStep[];
   createdBy?: mongoose.Types.ObjectId;
@@ -61,18 +60,17 @@ const recipeStepSchema = new Schema<IRecipeStep>({
   tasks: { type: [stepTaskTemplateSchema], default: [] }
 });
 
-const recipeSchema = new Schema<IRecipe>({
+const recipeProcessSchema = new Schema<IRecipeProcess>({
   name: { type: String, required: true, trim: true, maxlength: 200 },
   description: { type: String, trim: true, maxlength: 1000 },
   category: { type: String, trim: true, maxlength: 100 },
-  serves: { type: Number, min: 1 },
   isActive: { type: Boolean, default: true },
   steps: { type: [recipeStepSchema], default: [] },
   createdBy: { type: Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
 
-recipeSchema.index({ name: 1 }, { unique: false });
+recipeProcessSchema.index({ name: 1 }, { unique: false });
 
-export const Recipe = mongoose.model<IRecipe>('Recipe', recipeSchema);
+export const RecipeProcess = mongoose.model<IRecipeProcess>('RecipeProcess', recipeProcessSchema);
 
 
