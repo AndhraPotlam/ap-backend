@@ -21,6 +21,8 @@ import expenseCategoryRoutes from './routes/expenseCategoryRoutes';
 import cashBoxRoutes from './routes/cashBoxRoutes';
 import recipeProcessRoutes from './routes/recipeProcessRoutes';
 import dayPlanRoutes from './routes/dayPlanRoutes';
+import recipeRoutes from './routes/recipeRoutes';
+import rawMaterialRoutes from './routes/rawMaterialRoutes';
 
 // Load environment variables
 dotenv.config();
@@ -141,6 +143,8 @@ app.use('/api/expense-categories', expenseCategoryRoutes);
 app.use('/api/cashbox', cashBoxRoutes);
 app.use('/api/recipe-processes', recipeProcessRoutes);
 app.use('/api/day-plans', dayPlanRoutes);
+app.use('/api/recipes', recipeRoutes);
+app.use('/api/raw-materials', rawMaterialRoutes);
 
 // ---------- Health Check ----------
 app.get('/api', (req, res) => {
