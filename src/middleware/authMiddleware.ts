@@ -16,8 +16,18 @@ export const authMiddleware = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const token = req.cookies.token;
-    console.log(token)
+    let token = req.cookies.token;
+
+    // Fallback: Check Authorization header
+    if (!token && req.headers.authorization) {
+      const authHeader = req.headers.authorization;
+      if (authHeader.startsWith('Bearer ')) {
+        token = authHeader.substring(7); // Remove 'Bearer ' prefix
+      }
+    }
+
+    console.log('Token extracted:', token ? `${token.substring(0, 10)}...` : 'None');
+
     if (!token) {
       res.status(401).json({ message: 'Authentication required' });
       return;

@@ -117,6 +117,7 @@ export const userController = {
 
       res.json({
         message: 'Login successful',
+        token,
         user: {
           _id: user._id,
           firstName: user.firstName,
