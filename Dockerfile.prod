@@ -1,5 +1,5 @@
 # Stage 1: Dependencies
-FROM node:18-alpine AS deps
+FROM node:22-alpine AS deps
 WORKDIR /app
 
 # Install dependencies only when needed
@@ -7,7 +7,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 # Stage 2: Builder
-FROM node:18-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 
 # Copy dependencies from deps stage
@@ -21,14 +21,14 @@ ENV NODE_ENV production
 RUN npm run build
 
 # Stage 3: Runner
-FROM node:18-alpine AS runner
+FROM node:22-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV production
 
 # Create a non-root user
 RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+RUN adduser --system --uid 1001 appuser
 
 # Copy necessary files from builder
 COPY --from=builder /app/dist ./dist
@@ -36,16 +36,16 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
 
 # Set correct permissions
-RUN chown -R nextjs:nodejs /app
+RUN chown -R appuser:nodejs /app
 
 # Switch to non-root user
-USER nextjs
+USER appuser
 
 # Expose the port
-EXPOSE 5000
+EXPOSE 8000
 
 # Set environment variables
-ENV PORT 5000
+ENV PORT 8000
 ENV HOSTNAME "0.0.0.0"
 
 # Start the application
