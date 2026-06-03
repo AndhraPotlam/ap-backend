@@ -111,8 +111,6 @@ export const taskController = {
         taskOwner,
         assignedBy,
         checklistType,
-        priority,
-        assignedBy,
         search,
         date,
         startDate,
@@ -127,8 +125,6 @@ export const taskController = {
       if (taskOwner) filter.taskOwner = taskOwner;
       if (assignedBy) filter.assignedBy = assignedBy;
       if (checklistType) filter.checklistType = checklistType;
-      if (priority) filter.priority = priority;
-      if (assignedBy) filter.assignedBy = assignedBy;
 
       // Date filters - support single "date" or range via startDate/endDate
       if (startDate || endDate) {
@@ -668,54 +664,4 @@ export const taskController = {
       });
     }
   },
-
-  // Get task statistics
-  getTaskStats: async (req: Request, res: Response): Promise<void> => {
-    try {
-      const { startDate, endDate } = req.query;
-
-      const filter: any = {};
-      if (startDate || endDate) {
-        filter.dueDate = {};
-        if (startDate) {
-          filter.dueDate.$gte = new Date(startDate as string);
-        }
-        if (endDate) {
-          filter.dueDate.$lte = new Date(endDate as string);
-        }
-      }
-
-      const [
-        totalTasks,
-        pendingTasks,
-        inProgressTasks,
-        completedTasks,
-        cancelledTasks,
-        onHoldTasks
-      ] = await Promise.all([
-        Task.countDocuments(filter),
-        Task.countDocuments({ ...filter, status: 'pending' }),
-        Task.countDocuments({ ...filter, status: 'in_progress' }),
-        Task.countDocuments({ ...filter, status: 'completed' }),
-        Task.countDocuments({ ...filter, status: 'cancelled' }),
-        Task.countDocuments({ ...filter, status: 'on_hold' })
-      ]);
-
-      res.json({
-        totalTasks,
-        pendingTasks,
-        inProgressTasks,
-        completedTasks,
-        cancelledTasks,
-        onHoldTasks,
-        completionRate: totalTasks > 0 ? ((completedTasks / totalTasks) * 100).toFixed(1) : '0'
-      });
-    } catch (error: any) {
-      console.error('Error fetching task statistics:', error);
-      res.status(500).json({
-        message: 'Error fetching task statistics',
-        error: error.message
-      });
-    }
-  }
 };
