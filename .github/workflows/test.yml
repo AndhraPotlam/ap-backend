@@ -33,7 +33,7 @@ jobs:
         run: npx wait-on --timeout 60000 http://localhost:8001/api
 
       - name: Seed Database
-        run: yarn ts-node tests/setup/seed.ts
+        run: yarn ts-node --project tsconfig.json -O '{"rootDir": "."}' tests/setup/seed.ts
         env:
           MONGODB_URI: mongodb://localhost:27017/andhra-potlam
           NODE_ENV: test
