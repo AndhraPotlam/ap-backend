@@ -62,13 +62,13 @@ ap-backend/
 ### Step 1: Install Dependencies
 Ensure all development and test dependencies are installed:
 ```bash
-npm install
+yarn install
 ```
 
 ### Step 2: Running Unit Tests
 Unit tests run instantly and do not require a database connection.
 ```bash
-npm run test:unit
+yarn test:unit
 ```
 
 ### Step 3: Running Integration Tests Locally
@@ -95,7 +95,7 @@ To run the integration tests locally under identical environment conditions to C
 
 4. **Run Playwright Integration Tests**:
    ```bash
-   TEST_API_URL=http://localhost:8001/api/ npm run test:integration
+   TEST_API_URL=http://localhost:8001/api/ yarn test:integration
    ```
 
 5. **Clean up/Tear down**:
@@ -114,7 +114,7 @@ TEST_BACKEND_PORT=8002 TEST_MONGO_PORT=27018 docker-compose -f docker-compose.te
 NODE_ENV=test MONGODB_URI=mongodb://localhost:27018/andhra-potlam npx ts-node tests/setup/seed.ts
 
 # Run integration tests against custom backend port
-TEST_API_URL=http://localhost:8002/api/ npm run test:integration
+TEST_API_URL=http://localhost:8002/api/ yarn test:integration
 
 # Clean up
 TEST_MONGO_PORT=27018 docker-compose -f docker-compose.test.yml down -v
