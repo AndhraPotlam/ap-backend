@@ -34,7 +34,7 @@ jobs:
 
       - name: Seed Database
         run: |
-          yarn tsx tests/setup/seed.ts
+          npx tsx tests/setup/seed.ts
         env:
           MONGODB_URI: mongodb://localhost:27017/andhra-potlam
           NODE_ENV: test
