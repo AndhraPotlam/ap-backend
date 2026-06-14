@@ -7,7 +7,9 @@
     "dev": "nodemon src/server.ts",
     "build": "rimraf dist && tsc",
     "start": "node dist/server.js",
-    "migrate:categories": "ts-node src/scripts/migrateCategories.ts"
+    "migrate:categories": "ts-node src/scripts/migrateCategories.ts",
+    "test:unit": "jest",
+    "test:integration": "playwright test"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.787.0",
@@ -30,16 +32,21 @@
     "sonner": "^2.0.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/cookie-parser": "^1.4.6",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
+    "@types/jest": "^30.0.0",
     "@types/jsonwebtoken": "^9.0.5",
     "@types/morgan": "^1.9.9",
     "@types/node": "^20.10.4",
+    "jest": "^30.4.2",
     "nodemon": "^3.0.2",
     "rimraf": "^6.0.1",
+    "ts-jest": "^29.4.11",
     "ts-node": "^10.9.2",
+    "tsx": "^4.19.2",
     "typescript": "^5.3.3"
   }
 }

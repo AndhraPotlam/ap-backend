@@ -1,0 +1,43 @@
+version: "3.8"
+
+services:
+  mongodb-test:
+    image: mongo:6.0
+    ports:
+      - "${TEST_MONGO_PORT:-27017}:27017"
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --eval 'db.runCommand({ping: 1})' --quiet || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
+
+  backend-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    ports:
+      - "${TEST_BACKEND_PORT:-8001}:8000"
+    environment:
+      - NODE_ENV=test
+      - MONGODB_URI=mongodb://mongodb-test:27017/andhra-potlam
+      - PORT=8000
+      - JWT_SECRET=test-secret-key-for-jwt-signing-minimum-32-characters
+      - COOKIE_SECRET=test-cookie-secret
+      - AWS_ACCESS_KEY_ID=mock-key
+      - AWS_SECRET_ACCESS_KEY=mock-secret-key
+      - AWS_BUCKET_NAME=mock-bucket
+      - AWS_REGION=ap-south-1
+      - SMTP_HOST=smtp.mailtrap.io
+      - SMTP_PORT=2525
+      - SMTP_USER=mock-user
+      - SMTP_PASS=mock-pass
+    depends_on:
+      mongodb-test:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:8000/api || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 5s

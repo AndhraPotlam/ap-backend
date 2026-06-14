@@ -113,11 +113,13 @@ const connectDB = async () => {
     if (!mongoUrl) {
       throw new Error('MongoDB URI is not defined in environment variables');
     }
-    await mongoose.connect(mongoUrl, {
-      ssl: true,
-      tls: true,
-      tlsAllowInvalidCertificates: false
-    });
+    const options: mongoose.ConnectOptions = {};
+    if (process.env.NODE_ENV === 'production') {
+      options.ssl = true;
+      options.tls = true;
+      options.tlsAllowInvalidCertificates = false;
+    }
+    await mongoose.connect(mongoUrl, options);
     console.log('✅ MongoDB connected successfully');
   } catch (error) {
     console.error('❌ MongoDB connection error:', error);

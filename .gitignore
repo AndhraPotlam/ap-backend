@@ -28,3 +28,7 @@ coverage/
 
 # Misc 
 .vercel
+
+# playwright
+test-results/
+playwright-report/
