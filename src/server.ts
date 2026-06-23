@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
 import mongoose from 'mongoose';
 import crypto from 'crypto';
+import promClient from 'prom-client';
 import { logger } from './utils/logger';
 
 declare global {
@@ -183,6 +184,18 @@ app.get('/api/ready', (req, res) => {
   } else {
     logger.warn('Ready check failed: Database not connected', {}, req.id);
     res.status(503).json({ status: 'NOT_READY', database: 'disconnected' });
+  }
+});
+
+// ---------- Metrics ----------
+promClient.collectDefaultMetrics();
+
+app.get('/api/metrics', async (req, res) => {
+  try {
+    res.set('Content-Type', promClient.register.contentType);
+    res.end(await promClient.register.metrics());
+  } catch (ex) {
+    res.status(500).end(ex);
   }
 });
 
