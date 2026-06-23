@@ -2,7 +2,16 @@ import express from 'express';
 import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
 import mongoose from 'mongoose';
-import morgan from 'morgan';
+import crypto from 'crypto';
+import { logger } from './utils/logger';
+
+declare global {
+  namespace Express {
+    interface Request {
+      id?: string;
+    }
+  }
+}
 
 // Import routes
 import userRoutes from './routes/userRoutes';
@@ -94,15 +103,25 @@ app.use((req, res, next) => {
 // ---------- Core Middleware ----------
 app.use(express.json());
 app.use(cookieParser(process.env.COOKIE_SECRET || 'your-cookie-secret'));
-app.use(morgan('dev'));
 
-// Optional: Log requests
+// Request tracing and structured JSON logging middleware
 app.use((req, res, next) => {
-  console.log('--------------------');
-  console.log('Request URL:', req.url);
-  console.log('Request Method:', req.method);
-  console.log('Request Body:', req.body);
-  console.log('--------------------');
+  const start = Date.now();
+  const requestId = req.headers['x-request-id'] || crypto.randomUUID();
+  req.id = requestId.toString();
+  res.setHeader('X-Request-Id', req.id);
+
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    logger.info(`HTTP ${req.method} ${req.url} - ${res.statusCode}`, {
+      method: req.method,
+      url: req.url,
+      statusCode: res.statusCode,
+      durationMs: duration,
+      userAgent: req.headers['user-agent'],
+    }, req.id);
+  });
+
   next();
 });
 
@@ -120,9 +139,9 @@ const connectDB = async () => {
       options.tlsAllowInvalidCertificates = false;
     }
     await mongoose.connect(mongoUrl, options);
-    console.log('✅ MongoDB connected successfully');
-  } catch (error) {
-    console.error('❌ MongoDB connection error:', error);
+    logger.info('✅ MongoDB connected successfully');
+  } catch (error: any) {
+    logger.error('❌ MongoDB connection error:', { error: error.message, stack: error.stack });
     process.exit(1);
   }
 };
@@ -153,6 +172,20 @@ app.get('/api', (req, res) => {
   res.send('Hello, welcome to Andhra Portal API!');
 });
 
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
+app.get('/api/ready', (req, res) => {
+  const isMongoConnected = mongoose.connection.readyState === 1;
+  if (isMongoConnected) {
+    res.status(200).json({ status: 'READY', database: 'connected' });
+  } else {
+    logger.warn('Ready check failed: Database not connected', {}, req.id);
+    res.status(503).json({ status: 'NOT_READY', database: 'disconnected' });
+  }
+});
+
 // ---------- Global Error Handler ----------
 app.use(
   (
@@ -161,17 +194,17 @@ app.use(
     res: express.Response,
     next: express.NextFunction
   ) => {
-    console.error(err.stack);
+    logger.error('Global Error Handler caught error', { error: err.message, stack: err.stack }, req.id);
     res.status(500).json({ message: 'Something went wrong!' });
   }
 );
 
 // ---------- Start Server ----------
 app.listen(port, () => {
-  console.log(`🚀 Server running on port ${port}`);
+  logger.info(`🚀 Server running on port ${port}`);
   
   // Task management is now manual - no automatic scheduler
-  console.log('📅 Task management ready (manual generation)');
+  logger.info('📅 Task management ready (manual generation)');
 });
 
 // Export handler for Vercel
