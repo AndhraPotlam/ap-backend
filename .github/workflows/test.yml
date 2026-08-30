@@ -135,8 +135,7 @@ jobs:
             git pull --ff-only origin main
 
             # Use the short SHA (7 chars) to match the tag pushed by docker/metadata-action
-            # type=sha,prefix=,format=short produces a 7-char hex tag e.g. "abc1234"
-            TAG=$(echo "${{ github.sha }}" | cut -c1-7) ./scripts/deploy.sh production
+            TAG=$(echo "${{ github.sha }}" | cut -c1-7) ./scripts/deploy.sh production backend
 
       - name: Notify on failure
         if: failure()
