@@ -134,7 +134,12 @@ const connectDB = async () => {
       throw new Error('MongoDB URI is not defined in environment variables');
     }
     const options: mongoose.ConnectOptions = {};
-    if (process.env.NODE_ENV === 'production') {
+    if (
+      process.env.MONGO_TLS === 'true' ||
+      mongoUrl.includes('ssl=true') ||
+      mongoUrl.includes('tls=true') ||
+      mongoUrl.startsWith('mongodb+srv://')
+    ) {
       options.ssl = true;
       options.tls = true;
       options.tlsAllowInvalidCertificates = false;
