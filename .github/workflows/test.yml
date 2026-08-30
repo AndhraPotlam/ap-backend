@@ -42,7 +42,7 @@ jobs:
       - name: Seed Database
         run: node dist/tests/setup/seed.js
         env:
-          MONGODB_URI: mongodb://localhost:27017/andhra-potlam
+          DATABASE_URL: postgresql://test_user:test_password@localhost:5432/andhra_potlam_test?schema=public
           NODE_ENV: test
 
       - name: Run Playwright API Integration Tests

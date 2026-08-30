@@ -1,22 +1,28 @@
 import { Request, Response } from 'express';
-import { ExpenseCategory, IExpenseCategory } from '../models/ExpenseCategory';
-import { Expense } from '../models/Expense';
+import { prisma } from '../config/prisma';
+import { formatDoc, formatDocs } from '../utils/format';
 
 export const expenseCategoryController = {
   create: async (req: Request, res: Response): Promise<void> => {
     try {
       const { name, description, isActive } = req.body;
+      const userId = req.user?.userId || req.user?._id || req.user?.id;
+
       if (!name) {
         res.status(400).json({ message: 'Category name is required' });
         return;
       }
-      const category = await ExpenseCategory.create({
-        name,
-        description,
-        isActive: isActive !== undefined ? isActive : true,
-        createdBy: req.user?.userId,
-      } as Partial<IExpenseCategory>);
-      res.status(201).json({ message: 'Category created', category });
+
+      const category = await prisma.expenseCategory.create({
+        data: {
+          name: String(name).trim(),
+          description: description?.trim() || null,
+          isActive: isActive !== undefined ? Boolean(isActive) : true,
+          createdById: userId || null,
+        },
+      });
+
+      res.status(201).json({ message: 'Category created', category: formatDoc(category) });
     } catch (error: any) {
       console.error('Error creating expense category:', error);
       res.status(500).json({ message: 'Error creating expense category', error: error.message });
@@ -26,18 +32,25 @@ export const expenseCategoryController = {
   list: async (req: Request, res: Response): Promise<void> => {
     try {
       const { search, isActive } = req.query;
-      const filter: any = {};
+      const where: any = {};
+
       if (typeof isActive === 'string' && (isActive === 'true' || isActive === 'false')) {
-        filter.isActive = isActive === 'true';
+        where.isActive = isActive === 'true';
       }
+
       if (search) {
-        filter.$or = [
-          { name: { $regex: search as string, $options: 'i' } },
-          { description: { $regex: search as string, $options: 'i' } },
+        where.OR = [
+          { name: { contains: String(search), mode: 'insensitive' } },
+          { description: { contains: String(search), mode: 'insensitive' } },
         ];
       }
-      const categories = await ExpenseCategory.find(filter).sort({ name: 1 });
-      res.json({ categories });
+
+      const categories = await prisma.expenseCategory.findMany({
+        where,
+        orderBy: { name: 'asc' },
+      });
+
+      res.json({ categories: formatDocs(categories) });
     } catch (error: any) {
       console.error('Error fetching expense categories:', error);
       res.status(500).json({ message: 'Error fetching expense categories', error: error.message });
@@ -47,12 +60,16 @@ export const expenseCategoryController = {
   getById: async (req: Request, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
-      const category = await ExpenseCategory.findById(id);
+      const category = await prisma.expenseCategory.findUnique({
+        where: { id },
+      });
+
       if (!category) {
         res.status(404).json({ message: 'Expense category not found' });
         return;
       }
-      res.json({ category });
+
+      res.json({ category: formatDoc(category) });
     } catch (error: any) {
       console.error('Error fetching expense category:', error);
       res.status(500).json({ message: 'Error fetching expense category', error: error.message });
@@ -62,13 +79,18 @@ export const expenseCategoryController = {
   update: async (req: Request, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
-      const updateData = req.body;
-      const category = await ExpenseCategory.findByIdAndUpdate(id, updateData, { new: true, runValidators: true });
-      if (!category) {
-        res.status(404).json({ message: 'Expense category not found' });
-        return;
-      }
-      res.json({ message: 'Category updated', category });
+      const { name, description, isActive } = req.body;
+
+      const category = await prisma.expenseCategory.update({
+        where: { id },
+        data: {
+          name: name !== undefined ? String(name).trim() : undefined,
+          description: description !== undefined ? String(description).trim() : undefined,
+          isActive: isActive !== undefined ? Boolean(isActive) : undefined,
+        },
+      });
+
+      res.json({ message: 'Category updated', category: formatDoc(category) });
     } catch (error: any) {
       console.error('Error updating expense category:', error);
       res.status(500).json({ message: 'Error updating expense category', error: error.message });
@@ -78,17 +100,17 @@ export const expenseCategoryController = {
   remove: async (req: Request, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
-      // Prevent deletion if any expense uses this category
-      const linkedCount = await Expense.countDocuments({ category: id });
+
+      const linkedCount = await prisma.expense.count({
+        where: { categoryId: id },
+      });
+
       if (linkedCount > 0) {
         res.status(400).json({ message: 'Cannot delete: expenses exist for this category. Mark it inactive instead.' });
         return;
       }
-      const category = await ExpenseCategory.findByIdAndDelete(id);
-      if (!category) {
-        res.status(404).json({ message: 'Expense category not found' });
-        return;
-      }
+
+      await prisma.expenseCategory.delete({ where: { id } });
       res.json({ message: 'Category deleted' });
     } catch (error: any) {
       console.error('Error deleting expense category:', error);
@@ -96,5 +118,3 @@ export const expenseCategoryController = {
     }
   },
 };
-
-

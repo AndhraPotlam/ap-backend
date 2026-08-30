@@ -1,324 +1,323 @@
 import { Request, Response } from 'express';
-import { TaskTemplate, ITaskTemplate } from '../models/TaskTemplate';
+import { prisma } from '../config/prisma';
+import { formatDoc, formatDocs } from '../utils/format';
 
 export const taskTemplateController = {
-  // Create a new task template
   createTemplate: async (req: Request, res: Response): Promise<void> => {
     try {
       const {
         name,
         description,
-        taskFor,
+        taskFor = 'hotel',
         procedure,
-        checklistType,
+        checklistType = 'custom',
         estimatedDuration,
-        priority,
-        tags,
+        priority = 'medium',
+        tags = [],
         location,
-        category,
-        instructions,
-        requiredSkills,
-        equipment,
-        safetyNotes
+        category = 'general',
+        instructions = [],
+        requiredSkills = [],
+        equipment = [],
+        safetyNotes,
       } = req.body;
+      const userId = req.user?.userId || req.user?._id || req.user?.id;
 
-      // Validate required fields
-      if (!name || !description || !procedure || !estimatedDuration) {
+      if (!name || !description || !procedure || estimatedDuration === undefined) {
         res.status(400).json({
-          message: 'Name, description, procedure, and estimated duration are required'
+          message: 'Name, description, procedure, and estimated duration are required',
         });
         return;
       }
 
-      const templateData: Partial<ITaskTemplate> = {
-        name,
-        description,
-        taskFor: taskFor || 'hotel',
-        procedure,
-        checklistType: checklistType || 'custom',
-        estimatedDuration,
-        priority: priority || 'medium',
-        tags,
-        location,
-        category,
-        instructions,
-        requiredSkills,
-        equipment,
-        safetyNotes,
-        createdBy: req.user?.userId
-      };
-
-      const template = await TaskTemplate.create(templateData);
+      const template = await prisma.taskTemplate.create({
+        data: {
+          name: String(name).trim(),
+          description: String(description).trim(),
+          taskFor,
+          procedure: String(procedure).trim(),
+          checklistType: checklistType as any,
+          estimatedDuration: Number(estimatedDuration),
+          priority: priority as any,
+          tags: Array.isArray(tags) ? tags : [],
+          location: location || null,
+          category: String(category).trim(),
+          instructions: Array.isArray(instructions) ? instructions : [],
+          requiredSkills: Array.isArray(requiredSkills) ? requiredSkills : [],
+          equipment: Array.isArray(equipment) ? equipment : [],
+          safetyNotes: safetyNotes || null,
+          createdById: userId,
+        },
+        include: {
+          createdBy: { select: { id: true, firstName: true, lastName: true, email: true } },
+        },
+      });
 
       res.status(201).json({
         message: 'Task template created successfully',
-        template
+        template: {
+          ...template,
+          _id: template.id,
+          createdBy: formatDoc(template.createdBy),
+        },
       });
     } catch (error: any) {
       console.error('Error creating task template:', error);
-      res.status(500).json({
-        message: 'Error creating task template',
-        error: error.message
-      });
+      res.status(500).json({ message: 'Error creating task template', error: error.message });
     }
   },
 
-  // Get all task templates
   getAllTemplates: async (req: Request, res: Response): Promise<void> => {
     try {
-      const {
-        page = 1,
-        limit = 20,
-        taskFor,
-        checklistType,
-        category,
-        isActive,
-        search
-      } = req.query;
+      const { page = 1, limit = 20, taskFor, checklistType, category, isActive, search } = req.query;
 
-      const filter: any = {};
+      const where: any = {};
+      if (taskFor) where.taskFor = String(taskFor);
+      if (checklistType) where.checklistType = checklistType as any;
+      if (category) where.category = String(category);
+      if (isActive !== undefined) where.isActive = isActive === 'true';
 
-      // Apply filters
-      if (taskFor) filter.taskFor = taskFor;
-      if (checklistType) filter.checklistType = checklistType;
-      if (category) filter.category = category;
-      if (isActive !== undefined) filter.isActive = isActive === 'true';
-
-      // Search filter
       if (search) {
-        filter.$or = [
-          { name: { $regex: search, $options: 'i' } },
-          { description: { $regex: search, $options: 'i' } },
-          { category: { $regex: search, $options: 'i' } }
+        where.OR = [
+          { name: { contains: String(search), mode: 'insensitive' } },
+          { description: { contains: String(search), mode: 'insensitive' } },
+          { category: { contains: String(search), mode: 'insensitive' } },
         ];
       }
 
       const skip = (Number(page) - 1) * Number(limit);
+      const take = Number(limit);
 
-      const templates = await TaskTemplate.find(filter)
-        .populate('createdBy', 'firstName lastName email')
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(Number(limit));
+      const [templates, total] = await Promise.all([
+        prisma.taskTemplate.findMany({
+          where,
+          include: {
+            createdBy: { select: { id: true, firstName: true, lastName: true, email: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take,
+        }),
+        prisma.taskTemplate.count({ where }),
+      ]);
 
-      const total = await TaskTemplate.countDocuments(filter);
+      const formatted = templates.map((t) => ({
+        ...t,
+        _id: t.id,
+        createdBy: formatDoc(t.createdBy),
+      }));
 
       res.json({
-        templates,
+        templates: formatted,
         pagination: {
           current: Number(page),
-          pages: Math.ceil(total / Number(limit)),
-          total
-        }
+          pages: Math.ceil(total / take),
+          total,
+        },
       });
     } catch (error: any) {
       console.error('Error fetching task templates:', error);
-      res.status(500).json({
-        message: 'Error fetching task templates',
-        error: error.message
-      });
+      res.status(500).json({ message: 'Error fetching task templates', error: error.message });
     }
   },
 
-  // Get templates by checklist type
   getTemplatesByChecklistType: async (req: Request, res: Response): Promise<void> => {
     try {
       const { checklistType } = req.params;
 
-      if (!['daily', 'weekly', 'monthly', 'custom'].includes(checklistType)) {
-        res.status(400).json({
-          message: 'Invalid checklist type'
-        });
-        return;
-      }
+      const templates = await prisma.taskTemplate.findMany({
+        where: {
+          checklistType: checklistType as any,
+          isActive: true,
+        },
+        include: {
+          createdBy: { select: { id: true, firstName: true, lastName: true, email: true } },
+        },
+        orderBy: [{ category: 'asc' }, { name: 'asc' }],
+      });
 
-      const templates = await TaskTemplate.find({
-        checklistType,
-        isActive: true
-      })
-        .populate('createdBy', 'firstName lastName email')
-        .sort({ category: 1, name: 1 });
+      const formatted = templates.map((t) => ({
+        ...t,
+        _id: t.id,
+        createdBy: formatDoc(t.createdBy),
+      }));
 
-      res.json(templates);
+      res.json(formatted);
     } catch (error: any) {
       console.error('Error fetching templates by checklist type:', error);
-      res.status(500).json({
-        message: 'Error fetching templates by checklist type',
-        error: error.message
-      });
+      res.status(500).json({ message: 'Error fetching templates by checklist type', error: error.message });
     }
   },
 
-  // Get a single template by ID
   getTemplateById: async (req: Request, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
-
-      const template = await TaskTemplate.findById(id)
-        .populate('createdBy', 'firstName lastName email');
+      const template = await prisma.taskTemplate.findUnique({
+        where: { id },
+        include: {
+          createdBy: { select: { id: true, firstName: true, lastName: true, email: true } },
+        },
+      });
 
       if (!template) {
-        res.status(404).json({
-          message: 'Task template not found'
-        });
+        res.status(404).json({ message: 'Task template not found' });
         return;
       }
 
       res.json({
-        template
+        template: {
+          ...template,
+          _id: template.id,
+          createdBy: formatDoc(template.createdBy),
+        },
       });
     } catch (error: any) {
       console.error('Error fetching task template:', error);
-      res.status(500).json({
-        message: 'Error fetching task template',
-        error: error.message
-      });
+      res.status(500).json({ message: 'Error fetching task template', error: error.message });
     }
   },
 
-  // Update a task template
   updateTemplate: async (req: Request, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
       const updateData = req.body;
-
-      // Check if template exists
-      const existingTemplate = await TaskTemplate.findById(id);
-      if (!existingTemplate) {
-        res.status(404).json({
-          message: 'Task template not found'
-        });
-        return;
-      }
-
-      // Check permissions (creator or admin)
-      const isCreator = existingTemplate.createdBy.toString() === req.user?.userId;
+      const userId = req.user?.userId || req.user?._id || req.user?.id;
       const isAdmin = req.user?.role === 'admin';
 
-      if (!isCreator && !isAdmin) {
-        res.status(403).json({
-          message: 'You can only update templates created by you'
-        });
+      const existingTemplate = await prisma.taskTemplate.findUnique({ where: { id } });
+      if (!existingTemplate) {
+        res.status(404).json({ message: 'Task template not found' });
         return;
       }
 
-      const template = await TaskTemplate.findByIdAndUpdate(
-        id,
-        updateData,
-        { new: true, runValidators: true }
-      )
-        .populate('createdBy', 'firstName lastName email');
+      if (existingTemplate.createdById !== userId && !isAdmin) {
+        res.status(403).json({ message: 'You can only update templates created by you' });
+        return;
+      }
+
+      const template = await prisma.taskTemplate.update({
+        where: { id },
+        data: {
+          name: updateData.name,
+          description: updateData.description,
+          taskFor: updateData.taskFor,
+          procedure: updateData.procedure,
+          checklistType: updateData.checklistType,
+          estimatedDuration: updateData.estimatedDuration !== undefined ? Number(updateData.estimatedDuration) : undefined,
+          priority: updateData.priority,
+          tags: updateData.tags,
+          location: updateData.location,
+          isActive: updateData.isActive !== undefined ? Boolean(updateData.isActive) : undefined,
+          category: updateData.category,
+          instructions: updateData.instructions,
+          requiredSkills: updateData.requiredSkills,
+          equipment: updateData.equipment,
+          safetyNotes: updateData.safetyNotes,
+        },
+        include: {
+          createdBy: { select: { id: true, firstName: true, lastName: true, email: true } },
+        },
+      });
 
       res.json({
         message: 'Task template updated successfully',
-        template
+        template: {
+          ...template,
+          _id: template.id,
+          createdBy: formatDoc(template.createdBy),
+        },
       });
     } catch (error: any) {
       console.error('Error updating task template:', error);
-      res.status(500).json({
-        message: 'Error updating task template',
-        error: error.message
-      });
+      res.status(500).json({ message: 'Error updating task template', error: error.message });
     }
   },
 
-  // Delete a task template
   deleteTemplate: async (req: Request, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
-
-      const template = await TaskTemplate.findById(id);
-      if (!template) {
-        res.status(404).json({
-          message: 'Task template not found'
-        });
-        return;
-      }
-
-      // Check permissions (creator or admin)
-      const isCreator = template.createdBy.toString() === req.user?.userId;
+      const userId = req.user?.userId || req.user?._id || req.user?.id;
       const isAdmin = req.user?.role === 'admin';
 
-      if (!isCreator && !isAdmin) {
-        res.status(403).json({
-          message: 'You can only delete templates created by you'
-        });
+      const template = await prisma.taskTemplate.findUnique({ where: { id } });
+      if (!template) {
+        res.status(404).json({ message: 'Task template not found' });
         return;
       }
 
-      await TaskTemplate.findByIdAndDelete(id);
+      if (template.createdById !== userId && !isAdmin) {
+        res.status(403).json({ message: 'You can only delete templates created by you' });
+        return;
+      }
 
-      res.json({
-        message: 'Task template deleted successfully'
-      });
+      await prisma.taskTemplate.delete({ where: { id } });
+      res.json({ message: 'Task template deleted successfully' });
     } catch (error: any) {
       console.error('Error deleting task template:', error);
-      res.status(500).json({
-        message: 'Error deleting task template',
-        error: error.message
-      });
+      res.status(500).json({ message: 'Error deleting task template', error: error.message });
     }
   },
 
-  // Get template categories
   getTemplateCategories: async (req: Request, res: Response): Promise<void> => {
     try {
-      const categories = await TaskTemplate.aggregate([
-        { $match: { isActive: true } },
-        {
-          $group: {
-            _id: '$category',
-            count: { $sum: 1 }
-          }
-        },
-        { $sort: { _id: 1 } }
-      ]);
+      const categories = await prisma.taskTemplate.groupBy({
+        by: ['category'],
+        where: { isActive: true },
+        _count: { category: true },
+        orderBy: { category: 'asc' },
+      });
 
-      res.json(categories);
+      const formatted = categories.map((c) => ({
+        _id: c.category,
+        count: c._count.category,
+      }));
+
+      res.json(formatted);
     } catch (error: any) {
       console.error('Error fetching template categories:', error);
-      res.status(500).json({
-        message: 'Error fetching template categories',
-        error: error.message
-      });
+      res.status(500).json({ message: 'Error fetching template categories', error: error.message });
     }
   },
 
-  // Duplicate a template
   duplicateTemplate: async (req: Request, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
       const { name } = req.body;
+      const userId = req.user?.userId || req.user?._id || req.user?.id;
 
-      const originalTemplate = await TaskTemplate.findById(id);
-      if (!originalTemplate) {
-        res.status(404).json({
-          message: 'Task template not found'
-        });
+      const original = await prisma.taskTemplate.findUnique({ where: { id } });
+      if (!original) {
+        res.status(404).json({ message: 'Task template not found' });
         return;
       }
 
-      const templateData = {
-        ...originalTemplate.toObject(),
-        _id: undefined,
-        name: name || `${originalTemplate.name} (Copy)`,
-        createdBy: req.user?.userId,
-        createdAt: undefined,
-        updatedAt: undefined
-      };
-
-      const newTemplate = await TaskTemplate.create(templateData);
+      const newTemplate = await prisma.taskTemplate.create({
+        data: {
+          name: name || `${original.name} (Copy)`,
+          description: original.description,
+          taskFor: original.taskFor,
+          procedure: original.procedure,
+          checklistType: original.checklistType,
+          estimatedDuration: original.estimatedDuration,
+          priority: original.priority,
+          tags: original.tags,
+          location: original.location,
+          category: original.category,
+          instructions: original.instructions,
+          requiredSkills: original.requiredSkills,
+          equipment: original.equipment,
+          safetyNotes: original.safetyNotes,
+          createdById: userId,
+        },
+      });
 
       res.status(201).json({
         message: 'Task template duplicated successfully',
-        template: newTemplate
+        template: formatDoc(newTemplate),
       });
     } catch (error: any) {
       console.error('Error duplicating task template:', error);
-      res.status(500).json({
-        message: 'Error duplicating task template',
-        error: error.message
-      });
+      res.status(500).json({ message: 'Error duplicating task template', error: error.message });
     }
-  }
+  },
 };

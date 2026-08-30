@@ -1,10 +1,10 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
-import mongoose from 'mongoose';
 import crypto from 'crypto';
 import promClient from 'prom-client';
 import { logger } from './utils/logger';
+import { prisma, connectPrisma } from './config/prisma';
 
 declare global {
   namespace Express {
@@ -131,32 +131,10 @@ app.use((req, res, next) => {
   next();
 });
 
-// ---------- Connect to MongoDB ----------
-const connectDB = async () => {
-  try {
-    const mongoUrl = process.env.MONGODB_URI;
-    if (!mongoUrl) {
-      throw new Error('MongoDB URI is not defined in environment variables');
-    }
-    const options: mongoose.ConnectOptions = {};
-    if (
-      process.env.MONGO_TLS === 'true' ||
-      mongoUrl.includes('ssl=true') ||
-      mongoUrl.includes('tls=true') ||
-      mongoUrl.startsWith('mongodb+srv://')
-    ) {
-      options.ssl = true;
-      options.tls = true;
-      options.tlsAllowInvalidCertificates = false;
-    }
-    await mongoose.connect(mongoUrl, options);
-    logger.info('✅ MongoDB connected successfully');
-  } catch (error: any) {
-    logger.error('❌ MongoDB connection error:', { error: error.message, stack: error.stack });
-    process.exit(1);
-  }
-};
-connectDB();
+// ---------- Connect to PostgreSQL via Prisma ----------
+connectPrisma().catch((err) => {
+  logger.error('❌ Failed to initialize Prisma connection:', { error: err.message, stack: err.stack });
+});
 
 // ---------- API Routes ----------
 app.use('/api/users', userRoutes);
@@ -187,12 +165,12 @@ app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-app.get('/api/ready', (req, res) => {
-  const isMongoConnected = mongoose.connection.readyState === 1;
-  if (isMongoConnected) {
-    res.status(200).json({ status: 'READY', database: 'connected' });
-  } else {
-    logger.warn('Ready check failed: Database not connected', {}, req.id);
+app.get('/api/ready', async (req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.status(200).json({ status: 'READY', database: 'connected', engine: 'postgresql' });
+  } catch (error: any) {
+    logger.warn('Ready check failed: Database not connected', { error: error.message }, req.id);
     res.status(503).json({ status: 'NOT_READY', database: 'disconnected' });
   }
 });
