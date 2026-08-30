@@ -1,0 +1,669 @@
+// Prisma Schema for Andhra Potlam
+// PostgreSQL Database
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// -----------------------------------------------------------------------------
+// 1. Users & Authentication
+// -----------------------------------------------------------------------------
+
+enum UserRole {
+  user
+  admin
+  employee
+}
+
+model User {
+  id          String    @id @default(cuid())
+  firstName   String
+  lastName    String
+  email       String    @unique
+  phoneNumber String    @unique
+  password    String
+  role        UserRole  @default(user)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relationships
+  cart              Cart?
+  orders            Order[]
+  assignedTasks     Task[]           @relation("TaskOwner")
+  createdTasks      Task[]           @relation("TaskAssigner")
+  taskTemplates     TaskTemplate[]
+  expensesPaid      Expense[]        @relation("ExpensePaidBy")
+  expensesCreated   Expense[]        @relation("ExpenseCreatedBy")
+  expenseCategories ExpenseCategory[]
+  cashSessionsOpen  CashSession[]    @relation("CashSessionOpenedBy")
+  cashSessionsClose CashSession[]    @relation("CashSessionClosedBy")
+  cashEntries       CashEntry[]
+  rawMaterials      RawMaterial[]
+  recipes           Recipe[]
+  recipeProcesses   RecipeProcess[]
+  dayPlans          DayPlan[]
+  stepTaskTemplates StepTaskTemplate[]
+
+  @@map("users")
+}
+
+// -----------------------------------------------------------------------------
+// 2. Products & Categories
+// -----------------------------------------------------------------------------
+
+model Category {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  description String?
+  slug        String    @unique
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  products    Product[]
+
+  @@map("categories")
+}
+
+model Product {
+  id          String    @id @default(cuid())
+  name        String
+  description String
+  price       Float
+  categoryId  String
+  imageUrl    String
+  stock       Int       @default(0)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  category    Category  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  cartItems   CartItem[]
+  orderItems  OrderItem[]
+
+  @@index([categoryId])
+  @@map("products")
+}
+
+// -----------------------------------------------------------------------------
+// 3. Cart & Cart Items
+// -----------------------------------------------------------------------------
+
+model Cart {
+  id                    String     @id @default(cuid())
+  userId                String     @unique
+  totalPrice            Float      @default(0)
+  totalItems            Int        @default(0)
+  isActive              Boolean    @default(true)
+  appliedCouponId       String?
+  appliedCouponCode     String?
+  appliedDiscountAmount Float?
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+
+  user                  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items                 CartItem[]
+
+  @@map("carts")
+}
+
+model CartItem {
+  id         String   @id @default(cuid())
+  cartId     String
+  productId  String
+  quantity   Int      @default(1)
+  priceAtAdd Float
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  cart       Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([cartId])
+  @@index([productId])
+  @@map("cart_items")
+}
+
+// -----------------------------------------------------------------------------
+// 4. Orders & Order Items
+// -----------------------------------------------------------------------------
+
+enum OrderStatus {
+  pending
+  confirmed
+  processing
+  delivered
+  cancelled
+}
+
+model Order {
+  id                 String      @id @default(cuid())
+  userId             String
+  status             OrderStatus @default(pending)
+  totalAmount        Float
+  
+  // Shipping Details (Structured Columns)
+  shippingType       String
+  shippingAddress    String
+  shippingCity       String
+  shippingState      String
+  shippingZipCode    String
+  shippingCountry    String
+
+  // Payment Details
+  paymentMethod      String
+  paymentStatus      String
+
+  // Pricing Breakdown
+  subtotal           Float
+  taxRate            Float       @default(0)
+  taxAmount          Float       @default(0)
+  shippingCost       Float       @default(0)
+  discountAmount     Float       @default(0)
+  discountCode       String?
+
+  // Applied Coupon / Discounts Metadata (JSON for flexible history)
+  appliedCoupon      Json?
+  automaticDiscounts Json?
+
+  cancellationReason String?
+  cancelledAt        DateTime?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  user               User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  items              OrderItem[]
+
+  @@index([userId])
+  @@index([status])
+  @@map("orders")
+}
+
+model OrderItem {
+  id           String   @id @default(cuid())
+  orderId      String
+  productId    String
+  quantity     Int
+  priceAtOrder Float
+  createdAt    DateTime @default(now())
+
+  order        Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("order_items")
+}
+
+// -----------------------------------------------------------------------------
+// 5. Coupons & Discounts
+// -----------------------------------------------------------------------------
+
+enum DiscountType {
+  percentage
+  fixed
+  bulk
+  buy_x_get_y
+}
+
+model Coupon {
+  id                   String       @id @default(cuid())
+  code                 String       @unique
+  name                 String
+  description          String?
+  discountType         DiscountType @default(percentage)
+  discountValue        Float
+  minimumOrderAmount   Float?
+  maximumDiscount      Float?
+  validFrom            DateTime
+  validUntil           DateTime
+  usageLimit           Int?
+  usedCount            Int          @default(0)
+  isActive             Boolean      @default(true)
+  applicableCategories String[]     @default([])
+  applicableProducts   String[]     @default([])
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  @@map("coupons")
+}
+
+model Discount {
+  id                   String       @id @default(cuid())
+  name                 String
+  description          String?
+  type                 DiscountType @default(percentage)
+  value                Float
+  minimumOrderAmount   Float?
+  maximumDiscount      Float?
+  validFrom            DateTime
+  validUntil           DateTime
+  usageLimit           Int?
+  usedCount            Int          @default(0)
+  isActive             Boolean      @default(true)
+  applicableCategories String[]     @default([])
+  applicableProducts   String[]     @default([])
+  conditions           Json?        // buyQuantity, getQuantity, bulkThreshold, bulkDiscount
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  @@map("discounts")
+}
+
+// -----------------------------------------------------------------------------
+// 6. Expenses & Categories
+// -----------------------------------------------------------------------------
+
+enum ExpensePaymentType {
+  cash
+  online
+}
+
+model ExpenseCategory {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  description String?
+  isActive    Boolean   @default(true)
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  createdBy   User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  expenses    Expense[]
+
+  @@map("expense_categories")
+}
+
+model Expense {
+  id          String             @id @default(cuid())
+  amount      Float
+  paymentType ExpensePaymentType
+  paidById    String
+  categoryId  String
+  date        DateTime
+  description String?
+  notes       String?
+  attachments String[]           @default([])
+  createdById String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  paidBy      User               @relation("ExpensePaidBy", fields: [paidById], references: [id], onDelete: Restrict)
+  category    ExpenseCategory    @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  createdBy   User?              @relation("ExpenseCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([paidById])
+  @@index([categoryId])
+  @@index([date])
+  @@map("expenses")
+}
+
+// -----------------------------------------------------------------------------
+// 7. Cash Drawer Management
+// -----------------------------------------------------------------------------
+
+model CashSessionType {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  isActive    Boolean  @default(true)
+  createdBy   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("cash_session_types")
+}
+
+enum CashSessionStatus {
+  open
+  closed
+}
+
+model CashSession {
+  id            String            @id @default(cuid())
+  date          DateTime
+  sessionName   String
+  openedById    String
+  closedById    String?
+  openingAmount Float
+  closingAmount Float?
+  notes         String?
+  status        CashSessionStatus @default(open)
+  openedAt      DateTime          @default(now())
+  closedAt      DateTime?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  openedBy      User              @relation("CashSessionOpenedBy", fields: [openedById], references: [id], onDelete: Restrict)
+  closedBy      User?             @relation("CashSessionClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
+  entries       CashEntry[]
+
+  @@index([date])
+  @@index([status])
+  @@map("cash_sessions")
+}
+
+enum CashEntryType {
+  opening
+  closing
+  in
+  out
+}
+
+model CashEntry {
+  id          String        @id @default(cuid())
+  sessionId   String
+  type        CashEntryType
+  amount      Float
+  description String?
+  createdById String
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  session     CashSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  createdBy   User          @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([sessionId])
+  @@map("cash_entries")
+}
+
+// -----------------------------------------------------------------------------
+// 8. Raw Materials & Recipes
+// -----------------------------------------------------------------------------
+
+model RawMaterial {
+  id           String             @id @default(cuid())
+  name         String
+  description  String?
+  category     String
+  unit         String
+  costPerUnit  Float
+  supplier     String?
+  minimumStock Float              @default(0)
+  currentStock Float              @default(0)
+  isActive     Boolean            @default(true)
+  createdById  String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  createdBy    User?              @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  ingredients  RecipeIngredient[]
+
+  @@index([category])
+  @@map("raw_materials")
+}
+
+enum RecipeDifficulty {
+  easy
+  medium
+  hard
+}
+
+model Recipe {
+  id              String             @id @default(cuid())
+  name            String
+  description     String?
+  category        String?
+  serves          Int                @default(1)
+  prepTimeMin     Int?
+  cookTimeMin     Int?
+  totalTimeMin    Int?
+  difficulty      RecipeDifficulty   @default(medium)
+  cuisine         String?
+  isActive        Boolean            @default(true)
+  recipeProcessId String?
+  createdById     String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  createdBy       User?              @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  recipeProcess   RecipeProcess?     @relation(fields: [recipeProcessId], references: [id], onDelete: SetNull)
+  ingredients     RecipeIngredient[]
+
+  @@index([category])
+  @@index([cuisine])
+  @@map("recipes")
+}
+
+model RecipeIngredient {
+  id            String      @id @default(cuid())
+  recipeId      String
+  rawMaterialId String
+  quantity      Float
+  unit          String
+  notes         String?
+  createdAt     DateTime    @default(now())
+
+  recipe        Recipe      @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  rawMaterial   RawMaterial @relation(fields: [rawMaterialId], references: [id], onDelete: Restrict)
+
+  @@index([recipeId])
+  @@index([rawMaterialId])
+  @@map("recipe_ingredients")
+}
+
+model RecipeProcess {
+  id          String                 @id @default(cuid())
+  name        String
+  description String?
+  category    String?
+  isActive    Boolean                @default(true)
+  createdById String?
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+
+  createdBy   User?                  @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  recipes     Recipe[]
+  steps       RecipeStep[]
+  dayPlans    DayPlanSelectedRecipe[]
+
+  @@map("recipe_processes")
+}
+
+model RecipeStep {
+  id                   String             @id @default(cuid())
+  processId            String
+  name                 String
+  order                Int                @default(0)
+  instructions         String?
+  location             String?
+  estimatedDurationMin Int?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  process              RecipeProcess      @relation(fields: [processId], references: [id], onDelete: Cascade)
+  tasks                StepTaskTemplate[]
+
+  @@index([processId])
+  @@map("recipe_steps")
+}
+
+model StepTaskTemplate {
+  id             String      @id @default(cuid())
+  stepId         String
+  name           String
+  description    String?
+  type           String      @default("other")
+  procedure      String?
+  priority       String      @default("medium")
+  itemsUsed      String[]    @default([])
+  taskFor        String[]    @default([])
+  tags           String[]    @default([])
+  location       String?
+  startOffsetMin Int         @default(0)
+  durationMin    Int         @default(5)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  step           RecipeStep  @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  defaultAssignees User[]
+
+  @@index([stepId])
+  @@map("step_task_templates")
+}
+
+// -----------------------------------------------------------------------------
+// 9. Day Planning & Shifts
+// -----------------------------------------------------------------------------
+
+enum ShiftType {
+  morning
+  evening
+  other
+}
+
+model DayPlan {
+  id              String                 @id @default(cuid())
+  date            DateTime
+  shift           ShiftType?
+  generatedAt     DateTime?
+  generatedById   String?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  generatedBy     User?                  @relation(fields: [generatedById], references: [id], onDelete: SetNull)
+  selectedRecipes DayPlanSelectedRecipe[]
+
+  @@index([date])
+  @@map("day_plans")
+}
+
+model DayPlanSelectedRecipe {
+  id           String        @id @default(cuid())
+  dayPlanId    String
+  recipeId     String        // References RecipeProcess ID
+  plannedStart String?       // HH:mm
+  createdAt    DateTime      @default(now())
+
+  dayPlan      DayPlan       @relation(fields: [dayPlanId], references: [id], onDelete: Cascade)
+  recipe       RecipeProcess @relation(fields: [recipeId], references: [id], onDelete: Restrict)
+
+  @@index([dayPlanId])
+  @@map("day_plan_selected_recipes")
+}
+
+// -----------------------------------------------------------------------------
+// 10. Operations Tasks & Templates
+// -----------------------------------------------------------------------------
+
+enum TaskStatus {
+  pending
+  in_progress
+  completed
+  cancelled
+  on_hold
+}
+
+enum TaskPriority {
+  low
+  medium
+  high
+  urgent
+}
+
+enum TaskChecklistType {
+  daily
+  weekly
+  monthly
+  custom
+}
+
+model Task {
+  id                String            @id @default(cuid())
+  title             String
+  description       String
+  taskFor           String            @default("hotel")
+  taskOwnerId       String
+  assignedById      String
+  status            TaskStatus        @default(pending)
+  priority          TaskPriority      @default(medium)
+  startTime         DateTime?
+  endTime           DateTime?
+  timeTaken         Int?              // in minutes
+  procedure         String?
+  checklistType     TaskChecklistType @default(custom)
+  dueDate           DateTime?
+  completedAt       DateTime?
+  notes             String?
+  attachments       String[]          @default([])
+  isRecurring       Boolean           @default(false)
+  recurringPattern  Json?
+  parentTaskId      String?
+  tags              String[]          @default([])
+  location          String?
+  estimatedDuration Int?              // in minutes
+  actualDuration    Int?              // in minutes
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  taskOwner         User              @relation("TaskOwner", fields: [taskOwnerId], references: [id], onDelete: Restrict)
+  assignedBy        User              @relation("TaskAssigner", fields: [assignedById], references: [id], onDelete: Restrict)
+  parentTask        Task?             @relation("SubTasks", fields: [parentTaskId], references: [id], onDelete: SetNull)
+  subtasks          Task[]            @relation("SubTasks")
+
+  @@index([taskOwnerId])
+  @@index([assignedById])
+  @@index([status])
+  @@index([dueDate])
+  @@map("tasks")
+}
+
+model TaskTemplate {
+  id                String            @id @default(cuid())
+  name              String
+  description       String
+  taskFor           String            @default("hotel")
+  procedure         String
+  checklistType     TaskChecklistType @default(custom)
+  estimatedDuration Int               @default(0)
+  priority          TaskPriority      @default(medium)
+  tags              String[]          @default([])
+  location          String?
+  isActive          Boolean           @default(true)
+  category          String
+  instructions      String[]          @default([])
+  requiredSkills    String[]          @default([])
+  equipment         String[]          @default([])
+  safetyNotes       String?
+  createdById       String
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  createdBy         User              @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([category])
+  @@map("task_templates")
+}
+
+// -----------------------------------------------------------------------------
+// 11. System Settings
+// -----------------------------------------------------------------------------
+
+enum SettingCategory {
+  pricing
+  shipping
+  general
+  email
+  payment
+}
+
+model Setting {
+  id          String          @id @default(cuid())
+  key         String          @unique
+  value       Json
+  description String?
+  category    SettingCategory @default(general)
+  isActive    Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([category])
+  @@index([isActive])
+  @@map("settings")
+}

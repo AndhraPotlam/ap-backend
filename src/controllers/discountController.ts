@@ -1,15 +1,18 @@
 import { Request, Response } from 'express';
-import Discount from '../models/Discount';
+import { prisma } from '../config/prisma';
+import { formatDoc, formatDocs } from '../utils/format';
 
 export const discountController = {
   // Get all discounts
   getAllDiscounts: async (req: Request, res: Response) => {
     try {
-      const discounts = await Discount.find().sort({ createdAt: -1 });
-      res.json(discounts);
-    } catch (error) {
+      const discounts = await prisma.discount.findMany({
+        orderBy: { createdAt: 'desc' },
+      });
+      res.json(formatDocs(discounts));
+    } catch (error: any) {
       console.error('Error fetching discounts:', error);
-      res.status(500).json({ message: 'Failed to fetch discounts' });
+      res.status(500).json({ message: 'Failed to fetch discounts', error: error.message });
     }
   },
 
@@ -17,16 +20,18 @@ export const discountController = {
   getActiveDiscounts: async (req: Request, res: Response) => {
     try {
       const now = new Date();
-      const discounts = await Discount.find({
-        isActive: true,
-        validFrom: { $lte: now },
-        validUntil: { $gte: now }
-      }).sort({ createdAt: -1 });
-      
-      res.json(discounts);
-    } catch (error) {
+      const discounts = await prisma.discount.findMany({
+        where: {
+          isActive: true,
+          validFrom: { lte: now },
+          validUntil: { gte: now },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      res.json(formatDocs(discounts));
+    } catch (error: any) {
       console.error('Error fetching active discounts:', error);
-      res.status(500).json({ message: 'Failed to fetch active discounts' });
+      res.status(500).json({ message: 'Failed to fetch active discounts', error: error.message });
     }
   },
 
@@ -34,16 +39,18 @@ export const discountController = {
   getDiscountById: async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const discount = await Discount.findById(id);
-      
+      const discount = await prisma.discount.findUnique({
+        where: { id },
+      });
+
       if (!discount) {
         return res.status(404).json({ message: 'Discount not found' });
       }
-      
-      res.json(discount);
-    } catch (error) {
+
+      res.json(formatDoc(discount));
+    } catch (error: any) {
       console.error('Error fetching discount:', error);
-      res.status(500).json({ message: 'Failed to fetch discount' });
+      res.status(500).json({ message: 'Failed to fetch discount', error: error.message });
     }
   },
 
@@ -53,38 +60,39 @@ export const discountController = {
       const {
         name,
         description,
-        type,
+        type = 'percentage',
         value,
         minimumOrderAmount,
         maximumDiscount,
         validFrom,
         validUntil,
         usageLimit,
-        applicableCategories,
-        applicableProducts,
-        conditions
+        applicableCategories = [],
+        applicableProducts = [],
+        conditions,
       } = req.body;
-      
-      const discount = new Discount({
-        name,
-        description,
-        type,
-        value,
-        minimumOrderAmount,
-        maximumDiscount,
-        validFrom: validFrom || new Date(),
-        validUntil,
-        usageLimit,
-        applicableCategories,
-        applicableProducts,
-        conditions: conditions || {}
+
+      const discount = await prisma.discount.create({
+        data: {
+          name: String(name).trim(),
+          description: description?.trim() || null,
+          type: type as any,
+          value: Number(value),
+          minimumOrderAmount: minimumOrderAmount ? Number(minimumOrderAmount) : null,
+          maximumDiscount: maximumDiscount ? Number(maximumDiscount) : null,
+          validFrom: validFrom ? new Date(validFrom) : new Date(),
+          validUntil: new Date(validUntil),
+          usageLimit: usageLimit ? Number(usageLimit) : null,
+          applicableCategories: Array.isArray(applicableCategories) ? applicableCategories : [],
+          applicableProducts: Array.isArray(applicableProducts) ? applicableProducts : [],
+          conditions: conditions || {},
+        },
       });
-      
-      await discount.save();
-      res.status(201).json(discount);
-    } catch (error) {
+
+      res.status(201).json(formatDoc(discount));
+    } catch (error: any) {
       console.error('Error creating discount:', error);
-      res.status(500).json({ message: 'Failed to create discount' });
+      res.status(500).json({ message: 'Failed to create discount', error: error.message });
     }
   },
 
@@ -93,21 +101,30 @@ export const discountController = {
     try {
       const { id } = req.params;
       const updateData = req.body;
-      
-      const discount = await Discount.findByIdAndUpdate(
-        id,
-        updateData,
-        { new: true, runValidators: true }
-      );
-      
-      if (!discount) {
-        return res.status(404).json({ message: 'Discount not found' });
-      }
-      
-      res.json(discount);
-    } catch (error) {
+
+      const discount = await prisma.discount.update({
+        where: { id },
+        data: {
+          name: updateData.name,
+          description: updateData.description,
+          type: updateData.type,
+          value: updateData.value !== undefined ? Number(updateData.value) : undefined,
+          minimumOrderAmount: updateData.minimumOrderAmount !== undefined ? (updateData.minimumOrderAmount ? Number(updateData.minimumOrderAmount) : null) : undefined,
+          maximumDiscount: updateData.maximumDiscount !== undefined ? (updateData.maximumDiscount ? Number(updateData.maximumDiscount) : null) : undefined,
+          validFrom: updateData.validFrom ? new Date(updateData.validFrom) : undefined,
+          validUntil: updateData.validUntil ? new Date(updateData.validUntil) : undefined,
+          usageLimit: updateData.usageLimit !== undefined ? (updateData.usageLimit ? Number(updateData.usageLimit) : null) : undefined,
+          isActive: updateData.isActive !== undefined ? Boolean(updateData.isActive) : undefined,
+          applicableCategories: updateData.applicableCategories,
+          applicableProducts: updateData.applicableProducts,
+          conditions: updateData.conditions,
+        },
+      });
+
+      res.json(formatDoc(discount));
+    } catch (error: any) {
       console.error('Error updating discount:', error);
-      res.status(500).json({ message: 'Failed to update discount' });
+      res.status(500).json({ message: 'Failed to update discount', error: error.message });
     }
   },
 
@@ -115,17 +132,11 @@ export const discountController = {
   deleteDiscount: async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      
-      const discount = await Discount.findByIdAndDelete(id);
-      
-      if (!discount) {
-        return res.status(404).json({ message: 'Discount not found' });
-      }
-      
+      await prisma.discount.delete({ where: { id } });
       res.json({ message: 'Discount deleted successfully' });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error deleting discount:', error);
-      res.status(500).json({ message: 'Failed to delete discount' });
+      res.status(500).json({ message: 'Failed to delete discount', error: error.message });
     }
   },
 
@@ -133,77 +144,58 @@ export const discountController = {
   calculateApplicableDiscounts: async (req: Request, res: Response) => {
     try {
       const { items, orderAmount } = req.body;
-      
+
       if (!items || !Array.isArray(items) || items.length === 0) {
         return res.status(400).json({ message: 'Items array is required' });
       }
-      
+
       const now = new Date();
-      const activeDiscounts = await Discount.find({
-        isActive: true,
-        validFrom: { $lte: now },
-        validUntil: { $gte: now }
+      const activeDiscounts = await prisma.discount.findMany({
+        where: {
+          isActive: true,
+          validFrom: { lte: now },
+          validUntil: { gte: now },
+        },
       });
-      
+
       const applicableDiscounts = [];
-      const totalQuantity = items.reduce((sum: number, item: any) => sum + item.quantity, 0);
-      
+      const totalQuantity = items.reduce((sum: number, item: any) => sum + (Number(item.quantity) || 1), 0);
+      const amount = Number(orderAmount) || 0;
+
       for (const discount of activeDiscounts) {
-        // Use the model's validation method
-        const validation = discount.canBeApplied(orderAmount, totalQuantity);
-        if (!validation.valid) {
+        if (discount.minimumOrderAmount && amount < discount.minimumOrderAmount) {
           continue;
         }
-        
-        // Check applicable categories and products
-        let isApplicable = true;
-        
-        if (discount.applicableCategories && discount.applicableCategories.length > 0) {
-          const itemCategories = items.map((item: any) => item.categoryId).filter(Boolean);
-          if (!itemCategories.some((catId: string) => 
-            discount.applicableCategories!.some(cat => cat.toString() === catId)
-          )) {
-            isApplicable = false;
+
+        let discountAmount = 0;
+        if (discount.type === 'percentage') {
+          discountAmount = (amount * discount.value) / 100;
+          if (discount.maximumDiscount) {
+            discountAmount = Math.min(discountAmount, discount.maximumDiscount);
           }
+        } else if (discount.type === 'fixed') {
+          discountAmount = discount.value;
         }
-        
-        if (discount.applicableProducts && discount.applicableProducts.length > 0) {
-          const itemProductIds = items.map((item: any) => item.productId).filter(Boolean);
-          if (!itemProductIds.some((prodId: string) => 
-            discount.applicableProducts!.some(prod => prod.toString() === prodId)
-          )) {
-            isApplicable = false;
-          }
-        }
-        
-        if (isApplicable) {
-          // Use the model's calculation method
-          const discountAmount = discount.calculateDiscount(orderAmount, totalQuantity);
-          
-          if (discountAmount > 0) {
-            applicableDiscounts.push({
-              discount: {
-                _id: discount._id,
-                name: discount.name,
-                description: discount.description,
-                type: discount.type,
-                value: discount.value
-              },
-              discountAmount,
-              finalAmount: orderAmount - discountAmount
-            });
-          }
+
+        if (discountAmount > 0) {
+          applicableDiscounts.push({
+            discount: formatDoc(discount),
+            discountAmount,
+            finalAmount: Math.max(0, amount - discountAmount),
+          });
         }
       }
-      
+
+      const totalDiscount = applicableDiscounts.reduce((sum, d) => sum + d.discountAmount, 0);
+
       res.json({
         applicableDiscounts,
-        totalDiscount: applicableDiscounts.reduce((sum, d) => sum + d.discountAmount, 0),
-        finalAmount: orderAmount - applicableDiscounts.reduce((sum, d) => sum + d.discountAmount, 0)
+        totalDiscount,
+        finalAmount: Math.max(0, amount - totalDiscount),
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error calculating applicable discounts:', error);
-      res.status(500).json({ message: 'Failed to calculate applicable discounts' });
+      res.status(500).json({ message: 'Failed to calculate applicable discounts', error: error.message });
     }
-  }
+  },
 };

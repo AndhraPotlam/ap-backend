@@ -1,7 +1,6 @@
 import { Request, Response } from 'express';
-import { DayPlan } from '../models/DayPlan';
-import { RecipeProcess } from '../models/RecipeProcess';
-import { Task } from '../models/Task';
+import { prisma } from '../config/prisma';
+import { formatDoc, formatDocs } from '../utils/format';
 
 function parseTimeToMinutes(time?: string): number {
   if (!time) return 0;
@@ -12,109 +11,171 @@ function parseTimeToMinutes(time?: string): number {
 export const dayPlanController = {
   create: async (req: Request, res: Response) => {
     try {
-      const plan = await DayPlan.create({ ...req.body, generatedBy: req.user?.userId });
-      res.status(201).json({ plan });
+      const userId = req.user?.userId || req.user?._id || req.user?.id;
+      const { date, shift, selectedRecipes = [] } = req.body;
+
+      const plan = await prisma.dayPlan.create({
+        data: {
+          date: new Date(date),
+          shift: shift || null,
+          generatedById: userId || null,
+          selectedRecipes: {
+            create: selectedRecipes.map((sr: any) => ({
+              recipeId: typeof sr.recipe === 'object' ? sr.recipe?.id || sr.recipe?._id : sr.recipe,
+              plannedStart: sr.plannedStart || null,
+            })),
+          },
+        },
+        include: {
+          selectedRecipes: {
+            include: { recipe: true },
+          },
+        },
+      });
+
+      res.status(201).json({ plan: formatDoc(plan) });
     } catch (error: any) {
       console.error('Error creating day plan:', error);
       res.status(500).json({ message: 'Failed to create day plan', error: error.message });
     }
   },
+
   list: async (req: Request, res: Response) => {
     try {
       const { date } = req.query as { date?: string };
-      const filter: any = {};
-      if (date) filter.date = new Date(date);
-      const plans = await DayPlan.find(filter).populate('selectedRecipes.recipe', 'name');
-      res.json({ plans });
+      const where: any = {};
+      if (date) where.date = new Date(date);
+
+      const plans = await prisma.dayPlan.findMany({
+        where,
+        include: {
+          selectedRecipes: {
+            include: { recipe: { select: { id: true, name: true } } },
+          },
+        },
+        orderBy: { date: 'desc' },
+      });
+
+      const formatted = plans.map((p) => ({
+        ...p,
+        _id: p.id,
+        selectedRecipes: p.selectedRecipes.map((sr) => ({
+          ...sr,
+          _id: sr.id,
+          recipe: formatDoc(sr.recipe),
+        })),
+      }));
+
+      res.json({ plans: formatted });
     } catch (error: any) {
       res.status(500).json({ message: 'Failed to list day plans', error: error.message });
     }
   },
+
   generateTasks: async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const plan = await DayPlan.findById(id).populate('selectedRecipes.recipe');
+      const userId = req.user?.userId || req.user?._id || req.user?.id;
+
+      const plan = await prisma.dayPlan.findUnique({
+        where: { id },
+        include: {
+          selectedRecipes: {
+            include: {
+              recipe: {
+                include: {
+                  steps: {
+                    include: { tasks: true },
+                    orderBy: { order: 'asc' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+
       if (!plan) return res.status(404).json({ message: 'Day plan not found' });
 
       const dateOnly = new Date(plan.date);
-      dateOnly.setHours(0,0,0,0);
+      dateOnly.setHours(0, 0, 0, 0);
 
       const generated: any[] = [];
       const skipped: any[] = [];
 
       for (const sel of plan.selectedRecipes) {
-        const recipeDoc: any = sel.recipe;
-        if (!recipeDoc?.steps) {
-          console.warn(`Recipe Process with ID ${sel.recipe} not found or has no steps.`);
-          continue;
-        }
-        const baseMinutes = parseTimeToMinutes(sel.plannedStart);
+        const recipeDoc = sel.recipe;
+        if (!recipeDoc?.steps) continue;
 
-        for (const step of recipeDoc.steps.sort((a: any, b: any) => (a.order||0)-(b.order||0))) {
-          for (const tmpl of (step.tasks || [])) {
-            const startMin = baseMinutes + (tmpl.timeWindow?.startOffsetMin || 0);
-            const endMin = startMin + (tmpl.timeWindow?.durationMin || 0);
+        const baseMinutes = parseTimeToMinutes(sel.plannedStart || undefined);
+
+        for (const step of recipeDoc.steps) {
+          for (const tmpl of step.tasks) {
+            const startMin = baseMinutes + tmpl.startOffsetMin;
+            const endMin = startMin + tmpl.durationMin;
 
             const plannedStart = new Date(dateOnly);
             plannedStart.setMinutes(startMin);
             const plannedEnd = new Date(dateOnly);
             plannedEnd.setMinutes(endMin);
 
-            const exists = await Task.findOne({
-              title: tmpl.name,
-              'tags': { $in: [`recipe:${recipeDoc._id}`, `step:${step._id}`] },
-              dueDate: { $gte: dateOnly, $lte: new Date(dateOnly.getTime() + 24*60*60*1000 - 1) }
+            const endOfDayDate = new Date(dateOnly.getTime() + 24 * 60 * 60 * 1000 - 1);
+            const existingTask = await prisma.task.findFirst({
+              where: {
+                title: tmpl.name,
+                tags: { has: `recipe:${recipeDoc.id}` },
+                dueDate: { gte: dateOnly, lte: endOfDayDate },
+              },
             });
 
-            if (exists) {
+            if (existingTask) {
               skipped.push({ recipe: recipeDoc.name, step: step.name, template: tmpl.name, reason: 'exists' });
               continue;
             }
 
             try {
-              const taskData = {
-                title: tmpl.name || 'Unnamed Task',
-                description: tmpl.description || tmpl.name || 'Task from recipe',
-                taskFor: Array.isArray(tmpl.taskFor) && tmpl.taskFor.length ? tmpl.taskFor[0] : 'hotel',
-                taskOwner: (Array.isArray(tmpl.defaultAssignees) && tmpl.defaultAssignees[0]) || req.user?.userId,
-                assignedBy: req.user?.userId,
-                priority: tmpl.priority || 'medium',
-                procedure: tmpl.procedure || '',
-                checklistType: 'custom',
-                dueDate: plannedStart,
-                plannedStart,
-                plannedEnd,
-                notes: `${recipeDoc.name} Recipe Process • ${step.name}`,
-                location: tmpl.location || step.location || '',
-                estimatedDuration: tmpl.timeWindow?.durationMin || (endMin - startMin) || 15,
-                tags: [`recipe:${recipeDoc._id}`, `step:${step._id}`, ...(tmpl.tags || [])]
-              };
-              console.log('Creating task:', taskData.title, 'for date:', plannedStart.toISOString());
-              const task = await Task.create(taskData);
-              generated.push(task);
-              console.log('Task created successfully:', task._id);
-            } catch (createErr: any) {
-              console.error('Error creating task from day plan:', {
-                error: createErr?.message,
-                recipe: recipeDoc?.name,
-                step: step?.name,
-                template: tmpl?.name
+              const task = await prisma.task.create({
+                data: {
+                  title: tmpl.name || 'Unnamed Task',
+                  description: tmpl.description || tmpl.name || 'Task from recipe',
+                  taskFor: tmpl.taskFor?.[0] || 'hotel',
+                  taskOwnerId: userId,
+                  assignedById: userId,
+                  priority: (tmpl.priority as any) || 'medium',
+                  procedure: tmpl.procedure || null,
+                  checklistType: 'custom',
+                  dueDate: plannedStart,
+                  startTime: plannedStart,
+                  endTime: plannedEnd,
+                  notes: `${recipeDoc.name} Recipe Process • ${step.name}`,
+                  location: tmpl.location || step.location || null,
+                  estimatedDuration: tmpl.durationMin || (endMin - startMin) || 15,
+                  tags: [`recipe:${recipeDoc.id}`, `step:${step.id}`, ...(tmpl.tags || [])],
+                },
               });
-              skipped.push({ recipe: recipeDoc.name, step: step.name, template: tmpl.name, reason: createErr?.message || 'create_failed' });
+              generated.push(formatDoc(task));
+            } catch (createErr: any) {
+              skipped.push({ recipe: recipeDoc.name, step: step.name, template: tmpl.name, reason: createErr?.message });
             }
           }
         }
       }
 
-      plan.generatedAt = new Date();
-      await plan.save();
+      await prisma.dayPlan.update({
+        where: { id },
+        data: { generatedAt: new Date() },
+      });
 
-      res.json({ message: 'Tasks generated', totalGenerated: generated.length, totalSkipped: skipped.length, generated, skipped });
+      res.json({
+        message: 'Tasks generated',
+        totalGenerated: generated.length,
+        totalSkipped: skipped.length,
+        generated,
+        skipped,
+      });
     } catch (error: any) {
       console.error('Error in generateTasks:', error);
       res.status(500).json({ message: 'Failed to generate tasks', error: error.message });
     }
-  }
+  },
 };
-
-

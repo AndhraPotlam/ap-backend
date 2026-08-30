@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
-import { Category, generateSlug } from '../models/Category';
-import mongoose from 'mongoose';
+import { prisma } from '../config/prisma';
+import { formatDoc, formatDocs, generateSlug } from '../utils/format';
 
 export const categoryController = {
   // Create category
@@ -8,40 +8,35 @@ export const categoryController = {
     try {
       const { name, description } = req.body;
 
-      // Validate required fields
       if (!name || name.trim() === '') {
         res.status(400).json({ message: 'Category name is required' });
         return;
       }
 
-      // Generate slug from name
       const baseSlug = generateSlug(name);
       let slug = baseSlug;
       let counter = 1;
-      
-      // Check if category with same slug exists and append number if needed
-      while (await Category.findOne({ slug })) {
+
+      while (await prisma.category.findUnique({ where: { slug } })) {
         slug = `${baseSlug}-${counter}`;
         counter++;
       }
 
-      const category = new Category({
-        name,
-        description,
-        slug
+      const category = await prisma.category.create({
+        data: {
+          name: name.trim(),
+          description: description?.trim() || null,
+          slug,
+        },
       });
 
-      await category.save();
-      res.status(201).json(category);
+      res.status(201).json(formatDoc(category));
     } catch (error: any) {
       console.error('Error creating category:', error);
-      
-      // Handle duplicate key error specifically
-      if (error.code === 11000) {
+      if (error.code === 'P2002') {
         res.status(400).json({ message: 'A category with this name already exists' });
         return;
       }
-      
       res.status(500).json({ message: 'Error creating category', error: error.message });
     }
   },
@@ -49,31 +44,31 @@ export const categoryController = {
   // Get all categories
   getAllCategories: async (req: Request, res: Response): Promise<void> => {
     try {
-      const categories = await Category.find({ }).sort({ name: 1 });
-      res.json(categories);
+      const categories = await prisma.category.findMany({
+        orderBy: { name: 'asc' },
+      });
+      res.json(formatDocs(categories));
     } catch (error: any) {
       console.error('Error fetching categories:', error);
       res.status(500).json({ message: 'Error fetching categories', error: error.message });
     }
   },
 
-  // Get category by ID (admin only)
+  // Get category by ID
   getCategory: async (req: Request, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
 
-      if (!mongoose.Types.ObjectId.isValid(id)) {
-        res.status(400).json({ message: 'Invalid category ID format' });
-        return;
-      }
+      const category = await prisma.category.findUnique({
+        where: { id },
+      });
 
-      const category = await Category.findById(id);
       if (!category) {
         res.status(404).json({ message: 'Category not found' });
         return;
       }
 
-      res.json(category);
+      res.json(formatDoc(category));
     } catch (error: any) {
       console.error('Error fetching category:', error);
       res.status(500).json({ message: 'Error fetching category', error: error.message });
@@ -86,49 +81,46 @@ export const categoryController = {
       const { id } = req.params;
       const { name, description, isActive } = req.body;
 
-      if (!mongoose.Types.ObjectId.isValid(id)) {
-        res.status(400).json({ message: 'Invalid category ID format' });
-        return;
-      }
+      const existingCategory = await prisma.category.findUnique({
+        where: { id },
+      });
 
-      // Find the category first (including inactive ones)
-      const category = await Category.findById(id);
-      if (!category) {
+      if (!existingCategory) {
         res.status(404).json({ message: 'Category not found' });
         return;
       }
 
-      // Update the category
-      if (name) {
-        category.name = name;
-        // Generate new slug when name is updated
+      let slug = existingCategory.slug;
+      if (name && name !== existingCategory.name) {
         const baseSlug = generateSlug(name);
-        let slug = baseSlug;
+        slug = baseSlug;
         let counter = 1;
-        
-        // Check if category with same slug exists (excluding current category)
-        while (await Category.findOne({ slug, _id: { $ne: id } })) {
+
+        while (true) {
+          const found = await prisma.category.findUnique({ where: { slug } });
+          if (!found || found.id === id) break;
           slug = `${baseSlug}-${counter}`;
           counter++;
         }
-        
-        category.slug = slug;
       }
-      if (description !== undefined) category.description = description;
-      if (isActive !== undefined) category.isActive = isActive;
 
-      await category.save();
+      const updatedCategory = await prisma.category.update({
+        where: { id },
+        data: {
+          name: name !== undefined ? name.trim() : undefined,
+          description: description !== undefined ? description?.trim() || null : undefined,
+          isActive: isActive !== undefined ? Boolean(isActive) : undefined,
+          slug,
+        },
+      });
 
-      res.json(category);
+      res.json(formatDoc(updatedCategory));
     } catch (error: any) {
       console.error('Error updating category:', error);
-      
-      // Handle duplicate key error specifically
-      if (error.code === 11000) {
+      if (error.code === 'P2002') {
         res.status(400).json({ message: 'A category with this name already exists' });
         return;
       }
-      
       res.status(500).json({ message: 'Error updating category', error: error.message });
     }
   },
@@ -138,16 +130,10 @@ export const categoryController = {
     try {
       const { id } = req.params;
 
-      if (!mongoose.Types.ObjectId.isValid(id)) {
-        res.status(400).json({ message: 'Invalid category ID format' });
-        return;
-      }
-
-      const category = await Category.findByIdAndUpdate(
-        id,
-        { isActive: false },
-        { new: true }
-      );
+      const category = await prisma.category.update({
+        where: { id },
+        data: { isActive: false },
+      });
 
       if (!category) {
         res.status(404).json({ message: 'Category not found' });
@@ -160,4 +146,4 @@ export const categoryController = {
       res.status(500).json({ message: 'Error deleting category', error: error.message });
     }
   },
-}; 
+};

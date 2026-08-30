@@ -1,66 +1,42 @@
-import mongoose from 'mongoose';
-import Cart from '../models/Cart';
+import { prisma } from '../config/prisma';
+import dotenv from 'dotenv';
 
-// Connect to MongoDB
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/andhra-potlam';
+dotenv.config();
 
 async function cleanupDuplicateCarts() {
   try {
-    await mongoose.connect(MONGODB_URI);
-    console.log('Connected to MongoDB');
-
-    // Find all carts
-    const allCarts = await Cart.find({});
+    const allCarts = await prisma.cart.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
     console.log(`Found ${allCarts.length} total carts`);
 
-    // Group carts by user
-    const cartsByUser = new Map();
-    allCarts.forEach(cart => {
-      const userId = cart.user.toString();
-      if (!cartsByUser.has(userId)) {
-        cartsByUser.set(userId, []);
+    const userCartMap = new Map<string, typeof allCarts>();
+    allCarts.forEach((cart) => {
+      if (!userCartMap.has(cart.userId)) {
+        userCartMap.set(cart.userId, []);
       }
-      cartsByUser.get(userId).push(cart);
+      userCartMap.get(cart.userId)!.push(cart);
     });
 
-    console.log(`Found ${cartsByUser.size} unique users with carts`);
-
-    // Process each user's carts
-    for (const [userId, userCarts] of cartsByUser) {
+    for (const [userId, userCarts] of userCartMap) {
       if (userCarts.length > 1) {
         console.log(`User ${userId} has ${userCarts.length} carts`);
-        
-        // Sort by creation date (newest first)
-        userCarts.sort((a: any, b: any) => b.createdAt.getTime() - a.createdAt.getTime());
-        
-        // Keep the newest active cart, deactivate others
-        const newestCart = userCarts[0];
-        const olderCarts = userCarts.slice(1);
-        
-        // Deactivate older carts
-        for (const oldCart of olderCarts) {
-          oldCart.isActive = false;
-          await oldCart.save();
-          console.log(`Deactivated cart ${oldCart._id} for user ${userId}`);
-        }
-        
-        // Ensure newest cart is active
-        if (!newestCart.isActive) {
-          newestCart.isActive = true;
-          await newestCart.save();
-          console.log(`Activated cart ${newestCart._id} for user ${userId}`);
+        const [newest, ...duplicates] = userCarts;
+
+        for (const dup of duplicates) {
+          await prisma.cartItem.deleteMany({ where: { cartId: dup.id } });
+          await prisma.cart.delete({ where: { id: dup.id } });
+          console.log(`Deleted duplicate cart ${dup.id} for user ${userId}`);
         }
       }
     }
 
-    console.log('Cleanup completed successfully');
+    console.log('Cart cleanup completed successfully');
   } catch (error) {
     console.error('Error during cleanup:', error);
   } finally {
-    await mongoose.disconnect();
-    console.log('Disconnected from MongoDB');
+    await prisma.$disconnect();
   }
 }
 
-// Run the cleanup
 cleanupDuplicateCarts();

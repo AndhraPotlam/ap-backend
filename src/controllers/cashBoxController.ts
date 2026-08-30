@@ -1,23 +1,20 @@
 import { Request, Response } from 'express';
 import { startOfDay, endOfDay } from 'date-fns';
-import { CashSession } from '../models/CashSession';
-import { CashEntry } from '../models/CashEntry';
+import { prisma } from '../config/prisma';
+import { formatDoc, formatDocs } from '../utils/format';
 
 export const cashBoxController = {
-
-  // Create sessions for a specific date with all configured session names
+  // Create sessions for a specific date
   createDailySessions: async (req: Request, res: Response) => {
     try {
-      const { date, sessions } = req.body; // sessions: [{ sessionTypeId, openingAmount, notes }]
+      const { date, sessions } = req.body;
       const sessionDate = date ? new Date(date) : new Date();
-      const userId = (req.user as any)?.userId;
+      const userId = (req.user as any)?.userId || (req.user as any)?._id || (req.user as any)?.id;
 
-      // Validate sessions data
       if (!sessions || !Array.isArray(sessions) || sessions.length === 0) {
         return res.status(400).json({ message: 'Sessions data is required' });
       }
 
-      // Validate each session
       for (const sessionData of sessions) {
         if (!sessionData.sessionTypeId) {
           return res.status(400).json({ message: 'Session type ID is required for all sessions' });
@@ -30,27 +27,31 @@ export const cashBoxController = {
         }
       }
 
-      const { CashSessionType } = await import('../models/CashSessionType');
-
       const createdSessions = [];
       for (const sessionData of sessions) {
-        // Get session type details
-        const sessionType = await CashSessionType.findById(sessionData.sessionTypeId);
+        const sessionType = await prisma.cashSessionType.findUnique({
+          where: { id: sessionData.sessionTypeId },
+        });
         if (!sessionType || !sessionType.isActive) {
           return res.status(400).json({ message: `Invalid or inactive session type: ${sessionData.sessionTypeId}` });
         }
 
-        const session = await CashSession.create({
-          date: sessionDate,
-          sessionName: sessionType.name,
-          openedBy: userId,
-          openingAmount: sessionData.openingAmount,
-          notes: sessionData.notes,
-          status: 'open',
-          openedAt: new Date(),
+        const session = await prisma.cashSession.create({
+          data: {
+            date: sessionDate,
+            sessionName: sessionType.name,
+            openedById: userId,
+            openingAmount: sessionData.openingAmount,
+            notes: sessionData.notes || null,
+            status: 'open',
+            openedAt: new Date(),
+          },
+          include: {
+            openedBy: { select: { id: true, firstName: true, lastName: true } },
+          },
         });
 
-        createdSessions.push(session);
+        createdSessions.push(formatDoc(session));
       }
 
       res.json({ message: 'Daily sessions created', sessions: createdSessions });
@@ -64,44 +65,76 @@ export const cashBoxController = {
     try {
       const { sessionId } = req.params;
       const { closingAmount, notes } = req.body;
-      const userId = (req.user as any)?.userId;
+      const userId = (req.user as any)?.userId || (req.user as any)?._id || (req.user as any)?.id;
 
-      const session = await CashSession.findById(sessionId);
+      const session = await prisma.cashSession.findUnique({ where: { id: sessionId } });
       if (!session) return res.status(404).json({ message: 'Session not found' });
       if (session.status === 'closed') return res.status(400).json({ message: 'Session already closed' });
 
-      session.status = 'closed';
-      session.closedAt = new Date();
-      session.closedBy = userId;
-      session.closingAmount = closingAmount;
-      if (notes) session.notes = notes;
-      await session.save();
+      const updated = await prisma.cashSession.update({
+        where: { id: sessionId },
+        data: {
+          status: 'closed',
+          closedAt: new Date(),
+          closedById: userId,
+          closingAmount: Number(closingAmount),
+          notes: notes || session.notes,
+        },
+        include: {
+          openedBy: { select: { id: true, firstName: true, lastName: true } },
+          closedBy: { select: { id: true, firstName: true, lastName: true } },
+        },
+      });
 
-      res.json({ message: 'Cash session closed', session });
+      res.json({ message: 'Cash session closed', session: formatDoc(updated) });
     } catch (error: any) {
       res.status(500).json({ message: 'Failed to close session', error: error.message });
     }
   },
 
+  // Update session
+  updateSession: async (req: Request, res: Response) => {
+    try {
+      const { sessionId } = req.params;
+      const { openingAmount, closingAmount, notes, sessionName, status } = req.body;
 
-  // List sessions by date range with aggregates
+      const session = await prisma.cashSession.update({
+        where: { id: sessionId },
+        data: {
+          openingAmount: openingAmount !== undefined ? Number(openingAmount) : undefined,
+          closingAmount: closingAmount !== undefined ? Number(closingAmount) : undefined,
+          notes: notes !== undefined ? notes : undefined,
+          sessionName: sessionName !== undefined ? sessionName : undefined,
+          status: status !== undefined ? status : undefined,
+        },
+        include: {
+          openedBy: { select: { id: true, firstName: true, lastName: true } },
+          closedBy: { select: { id: true, firstName: true, lastName: true } },
+        },
+      });
+
+      res.json({ message: 'Cash session updated', session: formatDoc(session) });
+    } catch (error: any) {
+      res.status(500).json({ message: 'Failed to update session', error: error.message });
+    }
+  },
+
+  // Delete session
+  deleteSession: async (req: Request, res: Response) => {
+    try {
+      const { sessionId } = req.params;
+      await prisma.cashEntry.deleteMany({ where: { sessionId } });
+      await prisma.cashSession.delete({ where: { id: sessionId } });
+      res.json({ message: 'Cash session deleted' });
+    } catch (error: any) {
+      res.status(500).json({ message: 'Failed to delete session', error: error.message });
+    }
+  },
+
+  // List sessions by date range
   listSessions: async (req: Request, res: Response) => {
     try {
-      const { 
-        startDate, 
-        endDate, 
-        sessionType, 
-        status,
-        page = '1', 
-        limit = '10' 
-      } = req.query as { 
-        startDate?: string; 
-        endDate?: string; 
-        sessionType?: string;
-        status?: string;
-        page?: string;
-        limit?: string;
-      };
+      const { startDate, endDate, sessionType, status, page = '1', limit = '10' } = req.query as any;
 
       const start = startDate ? startOfDay(new Date(startDate)) : startOfDay(new Date());
       const end = endDate ? endOfDay(new Date(endDate)) : endOfDay(new Date());
@@ -109,197 +142,191 @@ export const cashBoxController = {
       const limitNum = parseInt(limit);
       const skip = (pageNum - 1) * limitNum;
 
-      // Build filter object
-      const filter: any = {
-        date: { $gte: start, $lte: end }
+      const where: any = {
+        date: { gte: start, lte: end },
       };
 
-      // Add session type filter if provided
-      if (sessionType) {
-        filter.sessionName = sessionType;
-      }
+      if (sessionType) where.sessionName = sessionType;
+      if (status) where.status = status;
 
-      // Add status filter if provided
-      if (status) {
-        filter.status = status;
-      }
+      const [sessions, total] = await Promise.all([
+        prisma.cashSession.findMany({
+          where,
+          include: {
+            openedBy: { select: { id: true, firstName: true, lastName: true } },
+            closedBy: { select: { id: true, firstName: true, lastName: true } },
+            entries: true,
+          },
+          orderBy: { date: 'desc' },
+          skip,
+          take: limitNum,
+        }),
+        prisma.cashSession.count({ where }),
+      ]);
 
-      // Get total count for pagination
-      const total = await CashSession.countDocuments(filter);
+      const formatted = sessions.map((s) => ({
+        ...s,
+        _id: s.id,
+        openedBy: formatDoc(s.openedBy),
+        closedBy: formatDoc(s.closedBy),
+        entries: formatDocs(s.entries),
+      }));
 
-      // Get paginated sessions
-      const sessions = await CashSession.find(filter)
-        .populate('openedBy closedBy', 'firstName lastName')
-        .sort({ date: -1, createdAt: -1 }) // Sort by date descending, then by creation time
-        .skip(skip)
-        .limit(limitNum);
-
-      res.json({ 
-        sessions, 
-        total, 
-        page: pageNum, 
-        limit: limitNum, 
-        totalPages: Math.ceil(total / limitNum) 
+      res.json({
+        sessions: formatted,
+        pagination: {
+          current: pageNum,
+          pages: Math.ceil(total / limitNum),
+          total,
+        },
       });
     } catch (error: any) {
       res.status(500).json({ message: 'Failed to list sessions', error: error.message });
     }
   },
 
-  // Get session details with net calculation
+  // Get session details
   getSessionDetails: async (req: Request, res: Response) => {
     try {
       const { sessionId } = req.params;
-      const session = await CashSession.findById(sessionId).populate('openedBy closedBy', 'firstName lastName');
+
+      const session = await prisma.cashSession.findUnique({
+        where: { id: sessionId },
+        include: {
+          openedBy: { select: { id: true, firstName: true, lastName: true } },
+          closedBy: { select: { id: true, firstName: true, lastName: true } },
+          entries: {
+            include: {
+              createdBy: { select: { id: true, firstName: true, lastName: true } },
+            },
+            orderBy: { createdAt: 'desc' },
+          },
+        },
+      });
+
       if (!session) return res.status(404).json({ message: 'Session not found' });
 
-      const net = (session.closingAmount ?? 0) - session.openingAmount;
-
-      res.json({ session, summary: { net } });
+      res.json({
+        session: {
+          ...session,
+          _id: session.id,
+          openedBy: formatDoc(session.openedBy),
+          closedBy: formatDoc(session.closedBy),
+          entries: session.entries.map((e) => ({
+            ...e,
+            _id: e.id,
+            createdBy: formatDoc(e.createdBy),
+          })),
+        },
+      });
     } catch (error: any) {
       res.status(500).json({ message: 'Failed to get session details', error: error.message });
     }
   },
 
-  // Summary for date range: totals
+  // Add cash entry
+  addEntry: async (req: Request, res: Response) => {
+    try {
+      const { sessionId, type, amount, description } = req.body;
+      const userId = (req.user as any)?.userId || (req.user as any)?._id || (req.user as any)?.id;
+
+      if (!sessionId || !type || amount === undefined) {
+        return res.status(400).json({ message: 'Session ID, type, and amount are required' });
+      }
+
+      const session = await prisma.cashSession.findUnique({ where: { id: sessionId } });
+      if (!session) return res.status(404).json({ message: 'Session not found' });
+      if (session.status === 'closed') return res.status(400).json({ message: 'Cannot add entry to a closed session' });
+
+      const entry = await prisma.cashEntry.create({
+        data: {
+          sessionId,
+          type: type as any,
+          amount: Number(amount),
+          description: description?.trim() || null,
+          createdById: userId,
+        },
+        include: {
+          createdBy: { select: { id: true, firstName: true, lastName: true } },
+        },
+      });
+
+      res.status(201).json({
+        message: 'Cash entry added',
+        entry: {
+          ...entry,
+          _id: entry.id,
+          createdBy: formatDoc(entry.createdBy),
+        },
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: 'Failed to add cash entry', error: error.message });
+    }
+  },
+
+  // List entries for a session
+  listEntries: async (req: Request, res: Response) => {
+    try {
+      const { sessionId } = req.params;
+
+      const entries = await prisma.cashEntry.findMany({
+        where: { sessionId },
+        include: {
+          createdBy: { select: { id: true, firstName: true, lastName: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      res.json({
+        entries: entries.map((e) => ({
+          ...e,
+          _id: e.id,
+          createdBy: formatDoc(e.createdBy),
+        })),
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: 'Failed to list cash entries', error: error.message });
+    }
+  },
+
+  // Summary
   summary: async (req: Request, res: Response) => {
     try {
       const { startDate, endDate } = req.query as { startDate?: string; endDate?: string };
       const start = startDate ? startOfDay(new Date(startDate)) : startOfDay(new Date());
       const end = endDate ? endOfDay(new Date(endDate)) : endOfDay(new Date());
 
-      console.log('Summary request:', { startDate, endDate, start, end });
-
-      // Get all sessions for the date range (including inactive/closed sessions)
-      const sessions = await CashSession.find({ 
-        date: { $gte: start, $lte: end } 
-      }).populate('openedBy closedBy', 'firstName lastName');
-
-      console.log('Found sessions:', sessions.length, sessions.map(s => ({
-        id: s._id,
-        date: s.date,
-        sessionName: s.sessionName,
-        openingAmount: s.openingAmount,
-        closingAmount: s.closingAmount,
-        status: s.status
-      })));
-
-      // Calculate net for each session first
-      const sessionSummaries = sessions.map(session => {
-        const sessionNet = (session.closingAmount || 0) - (session.openingAmount || 0);
-        return {
-          sessionId: session._id,
-          sessionName: session.sessionName,
-          date: session.date,
-          status: session.status,
-          openingAmount: session.openingAmount || 0,
-          closingAmount: session.closingAmount || 0,
-          net: sessionNet
-        };
+      const sessions = await prisma.cashSession.findMany({
+        where: { date: { gte: start, lte: end } },
+        include: { entries: true },
       });
 
-      // Group sessions by session name and sum their nets
-      const sessionGroups: { [key: string]: { totalNet: number; sessionCount: number; sessions: any[] } } = {};
-      
-      sessionSummaries.forEach(session => {
-        if (!sessionGroups[session.sessionName]) {
-          sessionGroups[session.sessionName] = {
-            totalNet: 0,
-            sessionCount: 0,
-            sessions: []
-          };
+      let totalOpening = 0;
+      let totalClosing = 0;
+      let totalCashIn = 0;
+      let totalCashOut = 0;
+
+      for (const s of sessions) {
+        totalOpening += s.openingAmount || 0;
+        totalClosing += s.closingAmount || 0;
+        for (const e of s.entries) {
+          if (e.type === 'in') totalCashIn += e.amount;
+          if (e.type === 'out') totalCashOut += e.amount;
         }
-        sessionGroups[session.sessionName].totalNet += session.net;
-        sessionGroups[session.sessionName].sessionCount += 1;
-        sessionGroups[session.sessionName].sessions.push(session);
-      });
+      }
 
-      // Convert to array format for response, sorted by session name
-      const sessionBreakdown = Object.entries(sessionGroups)
-        .map(([sessionName, data]) => ({
-          sessionName,
-          totalNet: data.totalNet,
-          sessionCount: data.sessionCount,
-          sessions: data.sessions
-        }))
-        .sort((a, b) => a.sessionName.localeCompare(b.sessionName)); // Sort alphabetically
-
-      // Calculate total net across all sessions
-      const totalNet = sessionSummaries.reduce((sum, session) => sum + session.net, 0);
-
-      console.log('Summary calculations:', { 
-        totalNet,
-        sessionBreakdown: sessionBreakdown.map(s => ({ name: s.sessionName, net: s.totalNet, count: s.sessionCount }))
-      });
-
-      const response = { 
-        summary: { 
-          net: totalNet,
+      res.json({
+        summary: {
           sessionCount: sessions.length,
-          sessionBreakdown 
-        } 
-      };
-
-      console.log('Summary response:', response);
-
-      res.json(response);
+          totalOpening,
+          totalClosing,
+          totalCashIn,
+          totalCashOut,
+          netCashFlow: totalCashIn - totalCashOut,
+        },
+      });
     } catch (error: any) {
-      console.error('Summary error:', error);
-      res.status(500).json({ message: 'Failed to get summary', error: error.message });
-    }
-  },
-
-  // Update session opening or closing amount
-  updateSession: async (req: Request, res: Response) => {
-    try {
-      const { sessionId } = req.params;
-      const { openingAmount, closingAmount } = req.body;
-
-      const session = await CashSession.findById(sessionId);
-      if (!session) {
-        return res.status(404).json({ message: 'Session not found' });
-      }
-
-      // Validate amounts
-      if (openingAmount !== undefined) {
-        if (typeof openingAmount !== 'number' || openingAmount < 0) {
-          return res.status(400).json({ message: 'Opening amount must be a valid number >= 0' });
-        }
-        session.openingAmount = openingAmount;
-      }
-
-      if (closingAmount !== undefined) {
-        if (typeof closingAmount !== 'number' || closingAmount < 0) {
-          return res.status(400).json({ message: 'Closing amount must be a valid number >= 0' });
-        }
-        session.closingAmount = closingAmount;
-      }
-
-      await session.save();
-      res.json({ message: 'Session updated successfully', session });
-    } catch (error: any) {
-      res.status(500).json({ message: 'Failed to update session', error: error.message });
-    }
-  },
-
-  // Delete a cash session
-  deleteSession: async (req: Request, res: Response) => {
-    try {
-      const { sessionId } = req.params;
-      const session = await CashSession.findById(sessionId);
-
-      if (!session) {
-        return res.status(404).json({ message: 'Session not found' });
-      }
-
-      // Delete the session
-      await CashSession.deleteOne({ _id: sessionId });
-
-      res.json({ message: 'Session deleted successfully' });
-    } catch (error: any) {
-      res.status(500).json({ message: 'Failed to delete session', error: error.message });
+      res.status(500).json({ message: 'Failed to get cash summary', error: error.message });
     }
   },
 };
-
-

@@ -1,204 +1,295 @@
 import { Request, Response } from 'express';
-import { Recipe } from '../models/Recipe';
-import { RawMaterial } from '../models/RawMaterial';
+import { prisma } from '../config/prisma';
+import { formatDoc, formatDocs } from '../utils/format';
+
+function formatRecipe(r: any) {
+  if (!r) return null;
+  return {
+    ...r,
+    _id: r.id,
+    createdBy: formatDoc(r.createdBy),
+    ingredients: r.ingredients?.map((i: any) => ({
+      ...i,
+      _id: i.id,
+      rawMaterial: formatDoc(i.rawMaterial),
+    })) || [],
+    recipeProcess: formatDoc(r.recipeProcess),
+  };
+}
 
 export const recipeController = {
-  // Get all recipes
   getAll: async (req: Request, res: Response) => {
     try {
       const { category, cuisine, difficulty, search, isActive } = req.query;
-      const filter: any = {};
+      const where: any = {};
 
-      if (category) filter.category = category;
-      if (cuisine) filter.cuisine = cuisine;
-      if (difficulty) filter.difficulty = difficulty;
-      if (search) filter.name = { $regex: search, $options: 'i' };
-      if (isActive !== undefined) filter.isActive = isActive === 'true';
+      if (category) where.category = String(category);
+      if (cuisine) where.cuisine = String(cuisine);
+      if (difficulty) where.difficulty = difficulty as any;
+      if (search) where.name = { contains: String(search), mode: 'insensitive' };
+      if (isActive !== undefined) where.isActive = isActive === 'true';
 
-      const recipes = await Recipe.find(filter)
-        .populate('createdBy', 'firstName lastName email')
-        .populate('ingredients.rawMaterial', 'name unit costPerUnit')
-        .sort({ name: 1 });
+      const recipes = await prisma.recipe.findMany({
+        where,
+        include: {
+          createdBy: { select: { id: true, firstName: true, lastName: true, email: true } },
+          ingredients: {
+            include: {
+              rawMaterial: { select: { id: true, name: true, unit: true, costPerUnit: true, category: true } },
+            },
+          },
+        },
+        orderBy: { name: 'asc' },
+      });
 
-      res.json({ recipes });
-    } catch (error) {
+      res.json({ recipes: recipes.map(formatRecipe) });
+    } catch (error: any) {
       console.error('Error fetching recipes:', error);
       res.status(500).json({ error: 'Failed to fetch recipes' });
     }
   },
 
-  // Get recipe by ID
   getById: async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const recipe = await Recipe.findById(id)
-        .populate('createdBy', 'firstName lastName email')
-        .populate('ingredients.rawMaterial', 'name unit costPerUnit category supplier');
+      const recipe = await prisma.recipe.findUnique({
+        where: { id },
+        include: {
+          createdBy: { select: { id: true, firstName: true, lastName: true, email: true } },
+          ingredients: {
+            include: {
+              rawMaterial: { select: { id: true, name: true, unit: true, costPerUnit: true, category: true, supplier: true } },
+            },
+          },
+          recipeProcess: true,
+        },
+      });
 
       if (!recipe) {
         return res.status(404).json({ error: 'Recipe not found' });
       }
 
-      res.json({ recipe });
-    } catch (error) {
+      res.json({ recipe: formatRecipe(recipe) });
+    } catch (error: any) {
       console.error('Error fetching recipe:', error);
       res.status(500).json({ error: 'Failed to fetch recipe' });
     }
   },
 
-  // Create new recipe
   create: async (req: Request, res: Response) => {
     try {
-      const recipeData = {
-        ...req.body,
-        createdBy: req.user?.id
-      };
+      const userId = req.user?.userId || req.user?._id || req.user?.id;
+      const {
+        name,
+        description,
+        category,
+        serves = 1,
+        prepTimeMin,
+        cookTimeMin,
+        totalTimeMin,
+        difficulty = 'medium',
+        cuisine,
+        ingredients = [],
+        isActive = true,
+      } = req.body;
 
-      // Calculate total time if not provided
-      if (!recipeData.totalTimeMin && (recipeData.prepTimeMin || recipeData.cookTimeMin)) {
-        recipeData.totalTimeMin = (recipeData.prepTimeMin || 0) + (recipeData.cookTimeMin || 0);
-      }
+      const calcTotalTime = totalTimeMin || ((Number(prepTimeMin) || 0) + (Number(cookTimeMin) || 0));
 
-      const recipe = new Recipe(recipeData);
-      await recipe.save();
+      const recipe = await prisma.recipe.create({
+        data: {
+          name: String(name).trim(),
+          description: description?.trim() || null,
+          category: category?.trim() || null,
+          serves: Number(serves),
+          prepTimeMin: prepTimeMin ? Number(prepTimeMin) : null,
+          cookTimeMin: cookTimeMin ? Number(cookTimeMin) : null,
+          totalTimeMin: calcTotalTime || null,
+          difficulty: difficulty as any,
+          cuisine: cuisine?.trim() || null,
+          isActive: Boolean(isActive),
+          createdById: userId || null,
+          ingredients: {
+            create: ingredients.map((ing: any) => ({
+              rawMaterialId: typeof ing.rawMaterial === 'object' ? ing.rawMaterial?.id || ing.rawMaterial?._id : ing.rawMaterial,
+              quantity: Number(ing.quantity),
+              unit: String(ing.unit || 'unit'),
+              notes: ing.notes || null,
+            })),
+          },
+        },
+        include: {
+          createdBy: { select: { id: true, firstName: true, lastName: true, email: true } },
+          ingredients: {
+            include: { rawMaterial: true },
+          },
+        },
+      });
 
-      await recipe.populate([
-        { path: 'createdBy', select: 'firstName lastName email' },
-        { path: 'ingredients.rawMaterial', select: 'name unit costPerUnit category' }
-      ]);
-
-      res.status(201).json({ recipe });
-    } catch (error) {
+      res.status(201).json({ recipe: formatRecipe(recipe) });
+    } catch (error: any) {
       console.error('Error creating recipe:', error);
-      if (error instanceof Error && error.name === 'ValidationError') {
-        return res.status(400).json({ error: error.message });
-      }
       res.status(500).json({ error: 'Failed to create recipe' });
     }
   },
 
-  // Update recipe
   update: async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const updateData = { ...req.body };
+      const {
+        name,
+        description,
+        category,
+        serves,
+        prepTimeMin,
+        cookTimeMin,
+        totalTimeMin,
+        difficulty,
+        cuisine,
+        ingredients,
+        isActive,
+      } = req.body;
 
-      // Calculate total time if not provided
-      if (!updateData.totalTimeMin && (updateData.prepTimeMin || updateData.cookTimeMin)) {
-        updateData.totalTimeMin = (updateData.prepTimeMin || 0) + (updateData.cookTimeMin || 0);
-      }
+      const calcTotalTime = totalTimeMin || ((Number(prepTimeMin) || 0) + (Number(cookTimeMin) || 0));
 
-      const recipe = await Recipe.findByIdAndUpdate(
-        id,
-        updateData,
-        { new: true, runValidators: true }
-      ).populate([
-        { path: 'createdBy', select: 'firstName lastName email' },
-        { path: 'ingredients.rawMaterial', select: 'name unit costPerUnit category' }
-      ]);
+      const recipe = await prisma.$transaction(async (tx) => {
+        if (ingredients && Array.isArray(ingredients)) {
+          await tx.recipeIngredient.deleteMany({ where: { recipeId: id } });
+          await tx.recipeIngredient.createMany({
+            data: ingredients.map((ing: any) => ({
+              recipeId: id,
+              rawMaterialId: typeof ing.rawMaterial === 'object' ? ing.rawMaterial?.id || ing.rawMaterial?._id : ing.rawMaterial,
+              quantity: Number(ing.quantity),
+              unit: String(ing.unit || 'unit'),
+              notes: ing.notes || null,
+            })),
+          });
+        }
 
-      if (!recipe) {
-        return res.status(404).json({ error: 'Recipe not found' });
-      }
+        return tx.recipe.update({
+          where: { id },
+          data: {
+            name: name !== undefined ? String(name).trim() : undefined,
+            description: description !== undefined ? description?.trim() || null : undefined,
+            category: category !== undefined ? category?.trim() || null : undefined,
+            serves: serves !== undefined ? Number(serves) : undefined,
+            prepTimeMin: prepTimeMin !== undefined ? Number(prepTimeMin) : undefined,
+            cookTimeMin: cookTimeMin !== undefined ? Number(cookTimeMin) : undefined,
+            totalTimeMin: calcTotalTime || undefined,
+            difficulty: difficulty !== undefined ? difficulty : undefined,
+            cuisine: cuisine !== undefined ? cuisine?.trim() || null : undefined,
+            isActive: isActive !== undefined ? Boolean(isActive) : undefined,
+          },
+          include: {
+            createdBy: { select: { id: true, firstName: true, lastName: true, email: true } },
+            ingredients: {
+              include: { rawMaterial: true },
+            },
+          },
+        });
+      });
 
-      res.json({ recipe });
-    } catch (error) {
+      res.json({ recipe: formatRecipe(recipe) });
+    } catch (error: any) {
       console.error('Error updating recipe:', error);
-      if (error instanceof Error && error.name === 'ValidationError') {
-        return res.status(400).json({ error: error.message });
-      }
       res.status(500).json({ error: 'Failed to update recipe' });
     }
   },
 
-  // Delete recipe
   delete: async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const recipe = await Recipe.findByIdAndDelete(id);
-
-      if (!recipe) {
-        return res.status(404).json({ error: 'Recipe not found' });
-      }
-
+      await prisma.recipe.delete({ where: { id } });
       res.json({ message: 'Recipe deleted successfully' });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error deleting recipe:', error);
       res.status(500).json({ error: 'Failed to delete recipe' });
     }
   },
 
-  // Calculate recipe cost
   calculateCost: async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const { servings } = req.query; // Optional: calculate cost for different number of servings
+      const { servings } = req.query;
 
-      const recipe = await Recipe.findById(id)
-        .populate('ingredients.rawMaterial', 'name unit costPerUnit');
+      const recipe = await prisma.recipe.findUnique({
+        where: { id },
+        include: {
+          ingredients: {
+            include: { rawMaterial: true },
+          },
+        },
+      });
 
       if (!recipe) {
         return res.status(404).json({ error: 'Recipe not found' });
       }
 
       let totalCost = 0;
-      const ingredientCosts = recipe.ingredients.map(ingredient => {
-        const rawMaterial = ingredient.rawMaterial as any;
-        const cost = (ingredient.quantity * rawMaterial.costPerUnit);
+      const ingredientCosts = recipe.ingredients.map((ingredient) => {
+        const cost = ingredient.quantity * (ingredient.rawMaterial.costPerUnit || 0);
         totalCost += cost;
-        
         return {
-          ingredient: ingredient,
-          cost: cost
+          ingredient: { ...ingredient, _id: ingredient.id },
+          cost,
         };
       });
 
       const targetServings = servings ? parseInt(servings as string) : recipe.serves;
-      const costPerServing = totalCost / recipe.serves;
+      const costPerServing = recipe.serves > 0 ? totalCost / recipe.serves : 0;
       const totalCostForServings = costPerServing * targetServings;
 
       res.json({
         recipe: recipe.name,
         originalServings: recipe.serves,
-        targetServings: targetServings,
-        totalCost: totalCost,
-        costPerServing: costPerServing,
-        totalCostForServings: totalCostForServings,
-        ingredientCosts: ingredientCosts
+        targetServings,
+        totalCost,
+        costPerServing,
+        totalCostForServings,
+        ingredientCosts,
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error calculating recipe cost:', error);
       res.status(500).json({ error: 'Failed to calculate recipe cost' });
     }
   },
 
-  // Get recipes by category
   getByCategory: async (req: Request, res: Response) => {
     try {
       const { category } = req.params;
-      const recipes = await Recipe.find({ 
-        category: category,
-        isActive: true 
-      })
-        .populate('createdBy', 'firstName lastName email')
-        .populate('ingredients.rawMaterial', 'name unit costPerUnit')
-        .sort({ name: 1 });
+      const recipes = await prisma.recipe.findMany({
+        where: {
+          category,
+          isActive: true,
+        },
+        include: {
+          createdBy: { select: { id: true, firstName: true, lastName: true, email: true } },
+          ingredients: {
+            include: { rawMaterial: { select: { id: true, name: true, unit: true, costPerUnit: true } } },
+          },
+        },
+        orderBy: { name: 'asc' },
+      });
 
-      res.json({ recipes });
-    } catch (error) {
+      res.json({ recipes: recipes.map(formatRecipe) });
+    } catch (error: any) {
       console.error('Error fetching recipes by category:', error);
       res.status(500).json({ error: 'Failed to fetch recipes by category' });
     }
   },
 
-  // Get recipe categories
   getCategories: async (req: Request, res: Response) => {
     try {
-      const categories = await Recipe.distinct('category', { isActive: true });
-      res.json({ categories: categories.filter(Boolean) });
-    } catch (error) {
+      const recipes = await prisma.recipe.findMany({
+        where: { isActive: true, category: { not: null } },
+        select: { category: true },
+        distinct: ['category'],
+      });
+
+      const categories = recipes.map((r) => r.category).filter(Boolean);
+      res.json({ categories });
+    } catch (error: any) {
       console.error('Error fetching recipe categories:', error);
       res.status(500).json({ error: 'Failed to fetch recipe categories' });
     }
-  }
+  },
 };

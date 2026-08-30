@@ -1,12 +1,16 @@
 version: "3.8"
 
 services:
-  mongodb-test:
-    image: mongo:6.0
+  postgres-test:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: test_user
+      POSTGRES_PASSWORD: test_password
+      POSTGRES_DB: andhra_potlam_test
     ports:
-      - "${TEST_MONGO_PORT:-27017}:27017"
+      - "${TEST_POSTGRES_PORT:-5432}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "mongosh --eval 'db.runCommand({ping: 1})' --quiet || exit 1"]
+      test: ["CMD-SHELL", "pg_isready -U test_user -d andhra_potlam_test"]
       interval: 3s
       timeout: 3s
       retries: 10
@@ -20,7 +24,7 @@ services:
       - "${TEST_BACKEND_PORT:-8001}:8000"
     environment:
       - NODE_ENV=test
-      - MONGODB_URI=mongodb://mongodb-test:27017/andhra-potlam
+      - DATABASE_URL=postgresql://test_user:test_password@postgres-test:5432/andhra_potlam_test?schema=public
       - PORT=8000
       - JWT_SECRET=test-secret-key-for-jwt-signing-minimum-32-characters
       - COOKIE_SECRET=test-cookie-secret
@@ -33,7 +37,7 @@ services:
       - SMTP_USER=mock-user
       - SMTP_PASS=mock-pass
     depends_on:
-      mongodb-test:
+      postgres-test:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:8000/api || exit 1"]

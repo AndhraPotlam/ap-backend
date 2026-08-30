@@ -1,8 +1,7 @@
 import { Request, Response } from 'express';
-import { Product } from '../models/Product';
-import { Category } from '../models/Category';
-import mongoose from 'mongoose';
+import { prisma } from '../config/prisma';
 import { s3Service } from '../services/s3Service';
+import { formatDoc, formatDocs } from '../utils/format';
 
 export const productController = {
   // Create product
@@ -10,37 +9,41 @@ export const productController = {
     try {
       const { name, description, price, category, stock, imageUrl } = req.body;
 
-      // Validate category
-      if (!mongoose.Types.ObjectId.isValid(category)) {
-        res.status(400).json({ message: 'Invalid category ID format' });
-        return;
-      }
+      const categoryId = typeof category === 'object' ? category?.id || category?._id : category;
 
-      const categoryExists = await Category.findById(category);
+      const categoryExists = await prisma.category.findUnique({
+        where: { id: categoryId },
+      });
+
       if (!categoryExists) {
         res.status(404).json({ message: 'Category not found' });
         return;
       }
 
-      const product = new Product({
-        name,
-        description,
-        price,
-        category,
-        stock,
-        imageUrl,
+      const product = await prisma.product.create({
+        data: {
+          name: name.trim(),
+          description: description?.trim() || '',
+          price: Number(price),
+          categoryId,
+          stock: stock !== undefined ? Number(stock) : 0,
+          imageUrl: imageUrl || '',
+        },
+        include: {
+          category: {
+            select: { id: true, name: true, slug: true },
+          },
+        },
       });
 
-      await product.save();
-      res.status(201).json(product);
+      res.status(201).json(formatDoc({ ...product, category: formatDoc(product.category) }));
     } catch (error: any) {
       console.error('Error creating product:', error);
       res.status(500).json({ message: 'Error creating product', error: error.message });
     }
   },
 
-  // Get all products
-  // Get products with filtering, pagination, and search
+  // Get all products with filtering, pagination, and search
   getAllProducts: async (req: Request, res: Response): Promise<void> => {
     try {
       const {
@@ -51,96 +54,82 @@ export const productController = {
         minPrice,
         maxPrice,
         sortBy = 'createdAt',
-        sortOrder = 'desc'
+        sortOrder = 'desc',
       } = req.query;
 
-      // Build query
-      const query: any = { isActive: true };
+      const whereClause: any = { isActive: true };
 
-      // Category filter
       if (category) {
-        if (mongoose.Types.ObjectId.isValid(category as string)) {
-          query.category = category;
-        } else {
-          res.status(400).json({ message: 'Invalid category ID format' });
-          return;
-        }
+        whereClause.categoryId = String(category);
       }
 
-      // Price range filter
       if (minPrice || maxPrice) {
-        query.price = {};
-        if (minPrice) query.price.$gte = Number(minPrice);
-        if (maxPrice) query.price.$lte = Number(maxPrice);
+        whereClause.price = {};
+        if (minPrice) whereClause.price.gte = Number(minPrice);
+        if (maxPrice) whereClause.price.lte = Number(maxPrice);
       }
 
-      // Search by name or description
       if (search) {
-        query.$or = [
-          { name: { $regex: search, $options: 'i' } },
-          { description: { $regex: search, $options: 'i' } }
+        whereClause.OR = [
+          { name: { contains: String(search), mode: 'insensitive' } },
+          { description: { contains: String(search), mode: 'insensitive' } },
         ];
       }
 
-      // Calculate pagination
       const skip = (Number(page) - 1) * Number(limit);
+      const take = Number(limit);
 
-      // Create sort object
-      const sortOptions: { [key: string]: 'asc' | 'desc' } = {
-        [(sortBy as string)]: (sortOrder as 'asc' | 'desc')
-      };
+      const validSortFields = ['name', 'price', 'stock', 'createdAt', 'updatedAt'];
+      const orderField = validSortFields.includes(String(sortBy)) ? String(sortBy) : 'createdAt';
+      const orderDirection = String(sortOrder).toLowerCase() === 'asc' ? 'asc' : 'desc';
 
-      // Execute query with pagination and populate category
-      const products = await Product.find(query)
-        .populate('category', 'name')
-        .sort(sortOptions)
-        .skip(skip)
-        .limit(Number(limit));
+      const [products, total] = await Promise.all([
+        prisma.product.findMany({
+          where: whereClause,
+          include: {
+            category: { select: { id: true, name: true, slug: true } },
+          },
+          orderBy: { [orderField]: orderDirection },
+          skip,
+          take,
+        }),
+        prisma.product.count({ where: whereClause }),
+      ]);
 
-      // Get total count for pagination
-      const total = await Product.countDocuments(query);
-
-      // Generate presigned URLs for each product's image
       const productsWithPresignedUrls = await Promise.all(
         products.map(async (product) => {
-          try {
-            // Check if S3 is configured
-            if (!s3Service.isConfigured()) {
-              console.warn('S3 not configured, using direct URLs');
-              const fileName = product.imageUrl.split('/').pop();
-              const directUrl = s3Service.getImageUrl(fileName!);
-              return {
-                ...product.toObject(),
-                imageUrl: directUrl,
-                imageUrlWarning: 'S3 not configured - using direct URLs'
-              };
-            }
+          let resolvedImageUrl = product.imageUrl;
+          let imageUrlWarning: string | undefined;
 
-            const fileName = product.imageUrl.split('/').pop();
-            const presignedUrl = await s3Service.getReadPresignedUrl(fileName!);
-            return {
-              ...product.toObject(),
-              imageUrl: presignedUrl
-            };
+          try {
+            if (!s3Service.isConfigured()) {
+              const fileName = product.imageUrl.split('/').pop();
+              if (fileName) resolvedImageUrl = s3Service.getImageUrl(fileName);
+            } else if (product.imageUrl) {
+              const fileName = product.imageUrl.split('/').pop();
+              if (fileName) resolvedImageUrl = await s3Service.getReadPresignedUrl(fileName);
+            }
           } catch (s3Error) {
-            console.warn('S3 presigned URL generation failed for product:', product._id, s3Error);
-            // Fallback to direct S3 URL
             const fileName = product.imageUrl.split('/').pop();
-            const directUrl = s3Service.getImageUrl(fileName!);
-            return {
-              ...product.toObject(),
-              imageUrl: directUrl,
-              imageUrlWarning: 'Using direct URL due to S3 configuration issue'
-            };
+            if (fileName) resolvedImageUrl = s3Service.getImageUrl(fileName);
+            imageUrlWarning = 'Using direct URL due to S3 configuration issue';
           }
+
+          return {
+            ...product,
+            _id: product.id,
+            category: formatDoc(product.category),
+            imageUrl: resolvedImageUrl,
+            ...(imageUrlWarning && { imageUrlWarning }),
+          };
         })
       );
 
       res.json({
         products: productsWithPresignedUrls,
         currentPage: Number(page),
-        totalPages: Math.ceil(total / Number(limit)),
-        totalProducts: total
+        totalPages: Math.ceil(total / take),
+        totalProducts: total,
       });
     } catch (error: any) {
       console.error('Error fetching products:', error);
@@ -152,26 +141,33 @@ export const productController = {
   getProductsByCategory: async (req: Request, res: Response): Promise<void> => {
     try {
       const { category } = req.params;
-      
-      // Validate category ID format
-      if (!mongoose.Types.ObjectId.isValid(category)) {
-        res.status(400).json({ message: 'Invalid category ID format' });
-        return;
-      }
-      
-      // Check if category exists
-      const categoryExists = await Category.findById(category);
+
+      const categoryExists = await prisma.category.findUnique({
+        where: { id: category },
+      });
+
       if (!categoryExists) {
         res.status(404).json({ message: 'Category not found' });
         return;
       }
-      
-      const products = await Product.find({ 
-        category,
-        isActive: true
-      }).populate('category', 'name');
-      
-      res.json(products);
+
+      const products = await prisma.product.findMany({
+        where: {
+          categoryId: category,
+          isActive: true,
+        },
+        include: {
+          category: { select: { id: true, name: true, slug: true } },
+        },
+      });
+
+      const formatted = products.map((p) => ({
+        ...p,
+        _id: p.id,
+        category: formatDoc(p.category),
+      }));
+
+      res.json(formatted);
     } catch (error: any) {
       console.error('Error fetching products by category:', error);
       res.status(500).json({ message: 'Error fetching products by category', error: error.message });
@@ -182,48 +178,46 @@ export const productController = {
   getProduct: async (req: Request, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
-      
-      // Validate ID format
-      if (!mongoose.Types.ObjectId.isValid(id)) {
-        res.status(400).json({ message: 'Invalid product ID format' });
-        return;
-      }
-      
-      const product = await Product.findOne({ 
-        _id: id,
-        isActive: true
-      }).populate('category', 'name');
-      
+
+      const product = await prisma.product.findFirst({
+        where: {
+          id,
+          isActive: true,
+        },
+        include: {
+          category: { select: { id: true, name: true, slug: true } },
+        },
+      });
+
       if (!product) {
         res.status(404).json({ message: 'Product not found' });
         return;
       }
 
-      // Generate presigned URL for the product's image
-      const fileName = product.imageUrl.split('/').pop();
-      let imageUrl;
-      let imageUrlWarning;
-      
+      let imageUrl = product.imageUrl;
+      let imageUrlWarning: string | undefined;
+
       try {
-        // Check if S3 is configured
         if (!s3Service.isConfigured()) {
-          console.warn('S3 not configured, using direct URL');
-          imageUrl = s3Service.getImageUrl(fileName!);
+          const fileName = product.imageUrl.split('/').pop();
+          if (fileName) imageUrl = s3Service.getImageUrl(fileName);
           imageUrlWarning = 'S3 not configured - using direct URL';
-        } else {
-          imageUrl = await s3Service.getReadPresignedUrl(fileName!);
+        } else if (product.imageUrl) {
+          const fileName = product.imageUrl.split('/').pop();
+          if (fileName) imageUrl = await s3Service.getReadPresignedUrl(fileName);
         }
       } catch (s3Error) {
-        console.warn('S3 presigned URL generation failed for product:', product._id, s3Error);
-        // Fallback to direct S3 URL
-        imageUrl = s3Service.getImageUrl(fileName!);
+        const fileName = product.imageUrl.split('/').pop();
+        if (fileName) imageUrl = s3Service.getImageUrl(fileName);
         imageUrlWarning = 'Using direct URL due to S3 configuration issue';
       }
-      
+
       res.json({
-        ...product.toObject(),
-        imageUrl: imageUrl,
-        ...(imageUrlWarning && { imageUrlWarning })
+        ...product,
+        _id: product.id,
+        category: formatDoc(product.category),
+        imageUrl,
+        ...(imageUrlWarning && { imageUrlWarning }),
       });
     } catch (error: any) {
       console.error('Error fetching product:', error);
@@ -235,55 +229,55 @@ export const productController = {
   updateProduct: async (req: Request, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
-      
-      // Validate ID format
-      if (!mongoose.Types.ObjectId.isValid(id)) {
-        res.status(400).json({ message: 'Invalid product ID format' });
-        return;
-      }
-      
-      // Validate category if provided
-      if (req.body.category) {
-        if (!mongoose.Types.ObjectId.isValid(req.body.category)) {
-          res.status(400).json({ message: 'Invalid category ID format' });
-          return;
-        }
-        
-        const categoryExists = await Category.findById(req.body.category);
+      const { name, description, price, category, stock, imageUrl, isActive } = req.body;
+
+      let categoryId: string | undefined;
+      if (category) {
+        categoryId = typeof category === 'object' ? category?.id || category?._id : category;
+        const categoryExists = await prisma.category.findUnique({
+          where: { id: categoryId },
+        });
         if (!categoryExists) {
           res.status(404).json({ message: 'Category not found' });
           return;
         }
       }
-      
-      const product = await Product.findByIdAndUpdate(
-        id,
-        { $set: req.body },
-        { new: true, runValidators: true }
-      ).populate('category', 'name');
 
-      if (!product) {
-        res.status(404).json({ message: 'Product not found' });
-        return;
+      const product = await prisma.product.update({
+        where: { id },
+        data: {
+          name: name !== undefined ? String(name).trim() : undefined,
+          description: description !== undefined ? String(description).trim() : undefined,
+          price: price !== undefined ? Number(price) : undefined,
+          categoryId: categoryId || undefined,
+          stock: stock !== undefined ? Number(stock) : undefined,
+          imageUrl: imageUrl !== undefined ? String(imageUrl) : undefined,
+          isActive: isActive !== undefined ? Boolean(isActive) : undefined,
+        },
+        include: {
+          category: { select: { id: true, name: true, slug: true } },
+        },
+      });
+
+      let resolvedImageUrl = product.imageUrl;
+      try {
+        if (s3Service.isConfigured() && product.imageUrl) {
+          const fileName = product.imageUrl.split('/').pop();
+          if (fileName) resolvedImageUrl = await s3Service.getReadPresignedUrl(fileName);
+        }
+      } catch (err) {
+        // ignore fallback
       }
 
-      // Generate presigned URL for the updated product's image
-      const fileName = product.imageUrl.split('/').pop();
-      const presignedUrl = await s3Service.getReadPresignedUrl(fileName!);
-
       res.json({
-        ...product.toObject(),
-        imageUrl: presignedUrl
+        ...product,
+        _id: product.id,
+        category: formatDoc(product.category),
+        imageUrl: resolvedImageUrl,
       });
     } catch (error: any) {
       console.error('Error updating product:', error);
-      
-      if (error instanceof mongoose.Error.ValidationError) {
-        const validationErrors = Object.values(error.errors).map(err => err.message);
-        res.status(400).json({ message: 'Validation error', errors: validationErrors });
-      } else {
-        res.status(500).json({ message: 'Error updating product', error: error.message });
-      }
+      res.status(500).json({ message: 'Error updating product', error: error.message });
     }
   },
 
@@ -291,23 +285,11 @@ export const productController = {
   deleteProduct: async (req: Request, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
-      
-      // Validate ID format
-      if (!mongoose.Types.ObjectId.isValid(id)) {
-        res.status(400).json({ message: 'Invalid product ID format' });
-        return;
-      }
-      
-      const product = await Product.findByIdAndUpdate(
-        id,
-        { isActive: false },
-        { new: true }
-      );
-      
-      if (!product) {
-        res.status(404).json({ message: 'Product not found' });
-        return;
-      }
+
+      await prisma.product.update({
+        where: { id },
+        data: { isActive: false },
+      });
 
       res.json({ message: 'Product deleted successfully' });
     } catch (error: any) {
@@ -324,17 +306,15 @@ export const productController = {
         hasAccessKey: !!process.env.AWS_ACCESS_KEY_ID,
         hasSecretKey: !!process.env.AWS_SECRET_ACCESS_KEY,
         hasRegion: !!process.env.AWS_REGION,
-        hasBucket: !!process.env.AWS_BUCKET_NAME,
+        hasBucket: !!process.env.S3_BUCKET_NAME,
         region: process.env.AWS_REGION,
-        bucket: process.env.AWS_BUCKET_NAME,
-        accessKeyPrefix: process.env.AWS_ACCESS_KEY_ID ? 
-          process.env.AWS_ACCESS_KEY_ID.substring(0, 4) + '...' : 'Not set'
+        bucket: process.env.S3_BUCKET_NAME,
       };
-      
+
       res.json(s3Status);
     } catch (error: any) {
       console.error('Error checking S3 status:', error);
       res.status(500).json({ message: 'Error checking S3 status', error: error.message });
     }
-  }
+  },
 };
