@@ -45,27 +45,32 @@ const port = process.env.PORT || 8000;
 app.use((req, res, next) => {
   const origin = req.headers.origin;
 
-  // Universal allowed origins for Vercel deployments
-  const allowedOrigins = [
+  // Universal allowed origins for Andhra Potlam
+  const allowedOrigins: (string | RegExp)[] = [
     // Local development
     'http://localhost:3000',
     'http://localhost:8080',
     'http://127.0.0.1:3000',
     
+    // Production and custom domains
+    'https://app.andhrapotlam.in',
+    'https://andhrapotlam.in',
+    'https://api.andhrapotlam.in',
+    'https://app.andhrapotlam.com',
+    'https://andhrapotlam.com',
+    'https://api.andhrapotlam.com',
+    /^https:\/\/.*\.andhrapotlam\.in$/,
+    /^https:\/\/.*\.andhrapotlam\.com$/,
+
+    // Environment-provided frontend URL
+    ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
+    ...(process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(s => s.trim()) : []),
+    
     // Vercel frontend domains (wildcard for all Vercel deployments)
     /^https:\/\/.*\.vercel\.app$/,
-    /^https:\/\/.*\.vercel\.app\/.*$/,
     
-    // Specific domains (if you want to be more restrictive)
-    'https://ap-frontend-mu.vercel.app',
-    'https://ap-frontend-git-main-andhra-potlams-projects.vercel.app',
-    'https://andhra-potlam.vercel.app',
-    
-    // Netlify domains (if you use Netlify)
+    // Netlify domains
     /^https:\/\/.*\.netlify\.app$/,
-    
-    // Custom domains (add your custom domain here)
-    // 'https://yourdomain.com'
   ];
 
   // Check if origin is allowed
